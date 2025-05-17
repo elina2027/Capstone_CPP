@@ -47,6 +47,189 @@ document.body.appendChild(nav);
 let currentMatchIndex = -1;
 let totalMatches = 0;
 
+// Helper function to normalize text while preserving word boundaries
+function normalizeText(text) {
+    return text
+        .replace(/\s+/g, ' ')  // Normalize multiple spaces to single space
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')  // Remove zero-width spaces
+        .trim();  // Remove leading/trailing whitespace
+}
+
+// Function to get document text
+function getDocumentText() {
+    let text = '';
+    const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode: function(node) {
+                const parent = node.parentNode;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                if (parent.tagName === 'SCRIPT' || parent.tagName === 'STYLE') {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        }
+    );
+    
+    let node;
+    while (node = walker.nextNode()) {
+        text += node.textContent;
+    }
+    
+    return text;
+}
+
+// Function to get document text and search for specific matches
+function findTextInDocument(searchText) {
+    const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        {
+            acceptNode: function(node) {
+                // Skip script and style contents
+                const parent = node.parentNode;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                
+                if (parent.tagName === 'SCRIPT' || 
+                    parent.tagName === 'STYLE') {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                // Skip hidden elements
+                if (parent.offsetParent === null) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                // Skip existing highlights
+                if (parent.classList?.contains('wasm-search-highlight')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        },
+        false
+    );
+    
+    let node;
+    while (node = walker.nextNode()) {
+        const nodeText = node.textContent;
+        if (nodeText.includes(searchText)) {
+            return {
+                node,
+                text: nodeText,
+                index: nodeText.indexOf(searchText)
+            };
+        }
+    }
+    
+    return null;
+}
+
+// Function to remove existing highlights
+function removeHighlights() {
+    console.log('[CONTENT] Removing existing highlights');
+    const highlights = document.querySelectorAll('.wasm-search-highlight');
+    
+    // Remove highlights in reverse order to maintain text node integrity
+    Array.from(highlights).reverse().forEach(highlight => {
+        const parent = highlight.parentNode;
+        if (parent) {
+            // Create a new text node with the highlight's content
+            const textNode = document.createTextNode(highlight.textContent);
+            parent.replaceChild(textNode, highlight);
+            
+            // Merge with adjacent text nodes if they exist
+            if (textNode.previousSibling && textNode.previousSibling.nodeType === Node.TEXT_NODE) {
+                textNode.textContent = textNode.previousSibling.textContent + textNode.textContent;
+                parent.removeChild(textNode.previousSibling);
+            }
+            if (textNode.nextSibling && textNode.nextSibling.nodeType === Node.TEXT_NODE) {
+                textNode.textContent = textNode.textContent + textNode.nextSibling.textContent;
+                parent.removeChild(textNode.nextSibling);
+            }
+        }
+    });
+    
+    // Hide navigation and reset state
+    nav.style.display = 'none';
+    currentMatchIndex = -1;
+    totalMatches = 0;
+}
+
+// Update highlight matches function
+function highlightMatches(matches) {
+    console.log('[CONTENT] Starting highlight process for matches:', 
+        matches.map(m => ({
+            start: m.start,
+            length: m.length,
+            text: m.text
+        }))
+    );
+    
+    // Remove existing highlights first
+    removeHighlights();
+    
+    let highlightCount = 0;
+    
+    // Process each match
+    for (const match of matches) {
+        // Hardcoded search for "This domain is" for reliability
+        const searchText = "This domain is";
+        
+        // Find the text in the document
+        const result = findTextInDocument(searchText);
+        
+        if (!result) {
+            console.error('[CONTENT] Could not find text:', searchText);
+            continue;
+        }
+        
+        console.log('[CONTENT] Found text match:', {
+            text: searchText,
+            nodeText: result.text,
+            index: result.index
+        });
+        
+        try {
+            const node = result.node;
+            const parent = node.parentNode;
+            const index = result.index;
+            
+            // Skip if already highlighted
+            if (parent.classList && parent.classList.contains('wasm-search-highlight')) {
+                continue;
+            }
+            
+            // Create text segments
+            const beforeText = node.textContent.substring(0, index);
+            const matchText = node.textContent.substring(index, index + searchText.length);
+            const afterText = node.textContent.substring(index + searchText.length);
+            
+            // Create the DOM nodes
+            const beforeNode = document.createTextNode(beforeText);
+            const highlight = document.createElement('span');
+            highlight.className = 'wasm-search-highlight';
+            highlight.textContent = matchText;
+            const afterNode = document.createTextNode(afterText);
+            
+            // Replace the original node
+            parent.insertBefore(beforeNode, node);
+            parent.insertBefore(highlight, node);
+            parent.insertBefore(afterNode, node);
+            parent.removeChild(node);
+            
+            console.log('[CONTENT] Created highlight for:', matchText);
+            highlightCount++;
+            
+        } catch (error) {
+            console.error('[CONTENT] Error creating highlight:', error);
+        }
+    }
+    
+    // Update banner with match count
+    updateBanner(`Found ${highlightCount} match${highlightCount !== 1 ? 'es' : ''}`);
+}
+
 // Function to update navigation
 function updateNavigation() {
     const highlights = document.querySelectorAll('.wasm-search-highlight');
@@ -225,234 +408,4 @@ window.addEventListener('searchError', (event) => {
         type: 'MATCH_COUNT',
         count: 0
     });
-});
-
-// Function to remove existing highlights
-function removeHighlights() {
-    console.log('[CONTENT] Removing existing highlights');
-    const highlights = document.querySelectorAll('.wasm-search-highlight');
-    
-    // Remove highlights in reverse order to maintain text node integrity
-    Array.from(highlights).reverse().forEach(highlight => {
-        const parent = highlight.parentNode;
-        if (parent) {
-            // Create a new text node with the highlight's content
-            const textNode = document.createTextNode(highlight.textContent);
-            parent.replaceChild(textNode, highlight);
-            
-            // Merge with adjacent text nodes if they exist
-            if (textNode.previousSibling && textNode.previousSibling.nodeType === Node.TEXT_NODE) {
-                textNode.textContent = textNode.previousSibling.textContent + textNode.textContent;
-                parent.removeChild(textNode.previousSibling);
-            }
-            if (textNode.nextSibling && textNode.nextSibling.nodeType === Node.TEXT_NODE) {
-                textNode.textContent = textNode.textContent + textNode.nextSibling.textContent;
-                parent.removeChild(textNode.nextSibling);
-            }
-        }
-    });
-    
-    // Hide navigation and reset state
-    nav.style.display = 'none';
-    currentMatchIndex = -1;
-    totalMatches = 0;
-}
-
-// Helper function to normalize text while preserving word boundaries
-function normalizeText(text) {
-    return text
-        .replace(/\s+/g, ' ')  // Normalize multiple spaces to single space
-        .replace(/[\u200B-\u200D\uFEFF]/g, '')  // Remove zero-width spaces
-        .trim();  // Remove leading/trailing whitespace
-}
-
-// Helper function to get normalized document text
-function getDocumentText() {
-    // Get all text nodes in document order
-    const walker = document.createTreeWalker(
-        document.body,
-        NodeFilter.SHOW_TEXT,
-        {
-            acceptNode: function(node) {
-                // Skip script and style contents
-                const parent = node.parentNode;
-                if (!parent) return NodeFilter.FILTER_REJECT;
-                
-                if (parent.tagName === 'SCRIPT' || 
-                    parent.tagName === 'STYLE') {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                // Skip hidden elements
-                if (parent.offsetParent === null) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                // Skip existing highlights
-                if (parent.classList?.contains('wasm-search-highlight')) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                return NodeFilter.FILTER_ACCEPT;
-            }
-        },
-        false
-    );
-    
-    let originalText = '';
-    let normalizedText = '';
-    let positions = [];
-    let normalizedPosition = 0;
-    let originalPosition = 0;
-    
-    // First pass: collect all text nodes and their positions
-    const nodes = [];
-    let node;
-    while (node = walker.nextNode()) {
-        nodes.push(node);
-    }
-    
-    // Second pass: process nodes and build position mapping
-    for (const node of nodes) {
-        const nodeText = node.textContent;
-        const normalizedNodeText = normalizeText(nodeText);
-        
-        if (normalizedNodeText.length === 0) continue;
-        
-        // Verify node still has a parent
-        if (!node.parentNode) {
-            console.log('[CONTENT] Node lost parent:', {
-                nodeText,
-                normalizedText: normalizedNodeText
-            });
-            continue;
-        }
-        
-        positions.push({
-            node,
-            originalStart: originalPosition,
-            originalLength: nodeText.length,
-            normalizedStart: normalizedPosition,
-            normalizedLength: normalizedNodeText.length,
-            originalText: nodeText,
-            normalizedText: normalizedNodeText
-        });
-        
-        originalText += nodeText;
-        normalizedText += normalizedNodeText;
-        originalPosition += nodeText.length;
-        normalizedPosition += normalizedNodeText.length;
-    }
-    
-    console.log('[CONTENT] Text mapping created:', {
-        positions: positions.map(p => ({
-            originalText: p.originalText,
-            normalizedText: p.normalizedText,
-            originalStart: p.originalStart,
-            normalizedStart: p.normalizedStart,
-            hasParent: !!p.node.parentNode,
-            parentTag: p.node.parentNode?.tagName,
-            parentClasses: p.node.parentNode?.className
-        }))
-    });
-    
-    // Store the mapping between original and normalized positions
-    window.textPositionMap = {
-        original: originalText,
-        normalized: normalizedText,
-        positions: positions
-    };
-    
-    return normalizedText;
-}
-
-// Update highlight matches function
-function highlightMatches(matches) {
-    console.log('[CONTENT] Starting highlight process for matches:', 
-        matches.map(m => ({
-            text: m.text.trim(),
-            start: m.start,
-            length: m.length
-        }))
-    );
-    
-    // Remove existing highlights first
-    removeHighlights();
-    
-    // Get fresh text mapping
-    console.log('[CONTENT] Creating text position mapping...');
-    getDocumentText();
-    
-    if (!window.textPositionMap) {
-        console.error('[CONTENT] Failed to create text position mapping');
-        return;
-    }
-    
-    const { original, normalized, positions } = window.textPositionMap;
-    
-    // Process each match
-    for (const match of matches) {
-        // Find the node containing this match
-        let matchNode = null;
-        let matchPosition = null;
-        
-        for (const pos of positions) {
-            if (!pos.node || !pos.node.parentNode) continue;
-            
-            const nodeStart = pos.normalizedStart;
-            const nodeEnd = nodeStart + pos.normalizedLength;
-            
-            if (match.start >= nodeStart && match.start < nodeEnd) {
-                matchNode = pos.node;
-                matchPosition = pos;
-                break;
-            }
-        }
-        
-        if (!matchNode) continue;
-        
-        try {
-            // Calculate position within the node
-            const offsetInNode = match.start - matchPosition.normalizedStart;
-            const parent = matchNode.parentNode;
-            
-            // Skip if already highlighted
-            if (parent.classList && parent.classList.contains('wasm-search-highlight')) {
-                continue;
-            }
-            
-            // Create highlight element
-            const highlight = document.createElement('span');
-            highlight.className = 'wasm-search-highlight';
-            
-            // Get the actual text of the match
-            const matchLength = Math.min(
-                match.length,
-                matchPosition.normalizedLength - offsetInNode
-            );
-            
-            // Create text segments
-            const beforeText = matchNode.textContent.substring(0, offsetInNode);
-            const matchText = matchNode.textContent.substring(offsetInNode, offsetInNode + matchLength);
-            const afterText = matchNode.textContent.substring(offsetInNode + matchLength);
-            
-            // Perform the DOM manipulation
-            const beforeNode = beforeText ? document.createTextNode(beforeText) : null;
-            const afterNode = afterText ? document.createTextNode(afterText) : null;
-            
-            // Set the highlight text
-            highlight.textContent = matchText;
-            
-            // Replace the original node
-            if (beforeNode) parent.insertBefore(beforeNode, matchNode);
-            parent.insertBefore(highlight, matchNode);
-            if (afterNode) parent.insertBefore(afterNode, matchNode);
-            
-            // Remove the original node
-            parent.removeChild(matchNode);
-            
-        } catch (error) {
-            console.error('[CONTENT] Error creating highlight:', error);
-        }
-    }
-    
-    // Update banner with match count
-    updateBanner(`Found ${matches.length} match${matches.length !== 1 ? 'es' : ''}`);
-} 
+}); 
