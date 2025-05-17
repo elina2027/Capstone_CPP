@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Ctrl-F with Gap",
+  "version": "1.0",
+  "description": "Search for two words with a character gap",
+  "permissions": [
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["search.wasm", "search.js", "page.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

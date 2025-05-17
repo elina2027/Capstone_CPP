@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "/Users/macbook/Downloads/untitled folder 2",
+    "command": "emcc -I${EMSDK}/upstream/emscripten/cache/sysroot/include search.cpp -o search.wasm",
+    "file": "search.cpp"
+  }
+] 
