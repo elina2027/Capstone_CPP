@@ -1,13 +1,42 @@
 console.log('[POPUP] Script loaded');
 
+// Function to save settings to chrome.storage
+function saveSettings() {
+  const settings = {
+    caseSensitive: !document.getElementById('caseToggle').checked
+  };
+  chrome.storage.sync.set({ wasmSearchSettings: settings }, () => {
+    console.log('[POPUP] Settings saved:', settings);
+  });
+}
+
+// Load saved settings when popup opens
+document.addEventListener('DOMContentLoaded', () => {
+  // Try to load saved settings
+  chrome.storage.sync.get('wasmSearchSettings', (result) => {
+    const settings = result.wasmSearchSettings || { caseSensitive: false };
+    console.log('[POPUP] Loaded settings:', settings);
+    
+    // Apply settings to UI
+    document.getElementById('caseToggle').checked = !settings.caseSensitive;
+  });
+});
+
+// Save settings when toggle changes
+document.getElementById('caseToggle').addEventListener('change', saveSettings);
+
 document.getElementById('searchBtn').addEventListener('click', () => {
   console.log('[POPUP] Search button clicked');
   
   const word1 = document.getElementById('word1').value;
   const word2 = document.getElementById('word2').value;
   const gap = parseInt(document.getElementById('gap').value, 10);
+  const caseSensitive = !document.getElementById('caseToggle').checked;
 
-  console.log('[POPUP] Search parameters:', { word1, word2, gap });
+  console.log('[POPUP] Search parameters:', { word1, word2, gap, caseSensitive });
+
+  // Save settings
+  saveSettings();
 
   // Reset count when starting new search
   const matchCountDiv = document.getElementById('matchCount');
@@ -20,7 +49,7 @@ document.getElementById('searchBtn').addEventListener('click', () => {
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       function: runSearch,
-      args: [word1, word2, gap],
+      args: [word1, word2, gap, caseSensitive],
     }).then(() => {
       console.log('[POPUP] Search script injected successfully');
     }).catch((error) => {
@@ -60,20 +89,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-function runSearch(word1, word2, gap) {
-  console.log('[PAGE] Running search with parameters:', { word1, word2, gap });
+function runSearch(word1, word2, gap, caseSensitive) {
+  console.log('[PAGE] Running search with parameters:', { word1, word2, gap, caseSensitive });
+  
+  // Set case sensitivity in window for content script to access
+  window.caseSensitive = caseSensitive;
+  
   window.postMessage({ 
     type: "RUN_SEARCH", 
     word1, 
     word2, 
-    gap 
+    gap,
+    caseSensitive
   }, "*");
 }
 
 function cleanHighlights() {
   console.log('[PAGE] Cleaning highlights');
-  document.querySelectorAll(".wasm-highlight").forEach(span => {
-    const text = document.createTextNode(span.textContent);
-    span.replaceWith(text);
-  });
+  window.postMessage({ 
+    type: "CLEAN_SEARCH" 
+  }, "*");
 }
