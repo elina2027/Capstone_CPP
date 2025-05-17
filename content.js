@@ -113,7 +113,26 @@ function isExtensionContextValid() {
     }
 }
 
-// Safe wrapper for sending messages to the extension
+// Initialize WebAssembly
+console.log('[CONTENT] Starting initialization');
+
+// Set up messaging port for more reliable communication
+let port = null;
+try {
+    port = chrome.runtime.connect({
+        name: 'content-' + (new Date().getTime().toString())
+    });
+    console.log('[CONTENT] Connected messaging port:', port);
+    
+    port.onDisconnect.addListener(() => {
+        console.log('[CONTENT] Port disconnected');
+        port = null;
+    });
+} catch (error) {
+    console.error('[CONTENT] Failed to connect port:', error);
+}
+
+// Improved message sending function to use both port and message passing
 function sendMessageToExtension(message) {
     if (!isExtensionContextValid()) {
         console.log('[CONTENT] Cannot send message - extension context invalid');
@@ -121,10 +140,45 @@ function sendMessageToExtension(message) {
     }
 
     try {
-        chrome.runtime.sendMessage(message);
+        console.log('[CONTENT] Sending message to extension:', message);
+        
+        // Add timestamp and ID for tracking
+        message.sentAt = new Date().toISOString();
+        message.id = 'msg_' + Math.random().toString(36).substr(2, 9);
+        
+        // Try port first if available
+        if (port) {
+            try {
+                port.postMessage(message);
+                console.log('[CONTENT] Message sent via port');
+            } catch (e) {
+                console.error('[CONTENT] Port message send failed:', e);
+                // Fall back to regular messaging
+                sendViaRuntime(message);
+            }
+        } else {
+            sendViaRuntime(message);
+        }
     } catch (error) {
-        console.log('[CONTENT] Failed to send message: ', error.message);
+        console.error('[CONTENT] Failed to send message: ', error.message);
     }
+}
+
+// Helper function to send via runtime messaging
+function sendViaRuntime(message) {
+    chrome.runtime.sendMessage(message, function(response) {
+        if (chrome.runtime.lastError) {
+            console.error('[CONTENT] Error sending message:', chrome.runtime.lastError);
+            
+            // Try again after a short delay
+            setTimeout(() => {
+                console.log('[CONTENT] Retrying message send...');
+                chrome.runtime.sendMessage(message);
+            }, 100);
+        } else {
+            console.log('[CONTENT] Message sent successfully, response:', response);
+        }
+    });
 }
 
 // Default case sensitivity setting (will be updated from popup)
@@ -136,9 +190,6 @@ function updateBanner(text, isError = false) {
     banner.className = isError ? 'wasm-search-banner error' : 'wasm-search-banner';
     console.log('[CONTENT] Banner updated:', text, isError ? '(error)' : '');
 }
-
-// Initialize WebAssembly
-console.log('[CONTENT] Starting initialization');
 
 // Create navigation controls
 const nav = document.createElement('div');
@@ -267,6 +318,11 @@ window.addEventListener('wasmError', () => {
 window.addEventListener('searchComplete', (event) => {
     const { count, matches } = event.detail;
     
+    // Calculate search duration
+    const searchEndTime = performance.now();
+    const searchDuration = (searchEndTime - (window.searchStartTime || searchEndTime)) / 1000;
+    console.log('[CONTENT] Search completed in', searchDuration.toFixed(2), 'seconds');
+    
     // Get document text first to establish position mapping
     const documentText = getDocumentText();
     
@@ -274,6 +330,7 @@ window.addEventListener('searchComplete', (event) => {
         count, 
         documentTextLength: documentText.length,
         textPositionMap: window.textPositionMap,
+        searchDuration: searchDuration.toFixed(2) + 's',
         matches: matches.map(m => ({
             text: m.text,
             start: m.start,
@@ -288,6 +345,33 @@ window.addEventListener('searchComplete', (event) => {
     
     // Remove any existing highlights
     removeHighlights();
+    
+    // Create message object with search results
+    const resultMessage = {
+        type: 'MATCH_COUNT',
+        count: count,
+        pageCount: count,
+        searchTime: searchDuration,
+        wordDistances: matches.map(m => m.wordCount || 0)
+    };
+    
+    // Ensure this message gets delivered to stop the timer
+    const deliverMessage = () => {
+        console.log('[CONTENT] Sending search results message:', resultMessage);
+        
+        // Try port first
+        if (port) {
+            try {
+                port.postMessage(resultMessage);
+                console.log('[CONTENT] Results sent via port');
+            } catch (e) {
+                console.error('[CONTENT] Port message failed, falling back to runtime:', e);
+                sendViaRuntime(resultMessage);
+            }
+        } else {
+            sendViaRuntime(resultMessage);
+        }
+    };
     
     if (count > 0) {
         // Get search parameters from the most recent search
@@ -304,26 +388,25 @@ window.addEventListener('searchComplete', (event) => {
         
         // Add new highlights
         highlightMatches(matchesWithWords);
-        updateBanner(`Found ${count} match${count > 1 ? 'es' : ''}`);
+        updateBanner(`Found ${count} match${count > 1 ? 'es' : ''} in ${searchDuration.toFixed(2)}s`);
         
-        // Send match count back to popup
-        sendMessageToExtension({
-            type: 'MATCH_COUNT',
-            count: count,
-            pageCount: count,
-            wordDistances: matches.map(m => m.wordCount || 0)
-        });
+        // Send match count back to popup (with retry mechanism)
+        deliverMessage();
     } else {
-        updateBanner('No matches found');
+        updateBanner(`No matches found (${searchDuration.toFixed(2)}s)`);
         
-        // Send zero count back to popup
-        sendMessageToExtension({
-            type: 'MATCH_COUNT',
-            count: 0,
-            pageCount: 0,
-            text: 'No matches found'
-        });
+        // Update the message with zero count
+        resultMessage.text = 'No matches found';
+        
+        // Send zero count back to popup (with retry mechanism)
+        deliverMessage();
     }
+    
+    // Ensure the message gets through by sending it again after a short delay
+    setTimeout(() => {
+        console.log('[CONTENT] Sending follow-up results message as backup');
+        deliverMessage();
+    }, 500);
 });
 
 // Listen for search messages
@@ -331,8 +414,11 @@ window.addEventListener('message', event => {
     if (event.source !== window) return;
     
     if (event.data.type === 'RUN_SEARCH') {
-        const { word1, word2, gap, caseSensitive } = event.data;
+        const { word1, word2, gap, caseSensitive, startTime } = event.data;
         console.log('[CONTENT] Search requested:', { word1, word2, gap, caseSensitive });
+        
+        // Store search start time
+        window.searchStartTime = startTime || performance.now();
         
         // Update case sensitivity setting from the message
         window.caseSensitive = caseSensitive;
@@ -340,6 +426,9 @@ window.addEventListener('message', event => {
         
         // Store search parameters for later use
         window.lastSearchParams = { word1, word2, gap, caseSensitive };
+        
+        // Update banner to show searching status
+        updateBanner('Searching...');
         
         // Dispatch search request to page context
         window.dispatchEvent(new CustomEvent('runSearch', {
@@ -359,11 +448,71 @@ window.addEventListener('message', event => {
 
 window.addEventListener('searchError', (event) => {
     console.error('[CONTENT] Search error:', event.detail);
+    removeHighlights(); // Clear any existing highlights
+    
+    // Calculate search duration if possible
+    let searchDuration = 0;
+    if (window.searchStartTime) {
+        searchDuration = (performance.now() - window.searchStartTime) / 1000;
+        console.log('[CONTENT] Search failed after', searchDuration.toFixed(2), 'seconds');
+    }
+    
     updateBanner('Search error: ' + event.detail, true);
-    sendMessageToExtension({
+    
+    // Show user-friendly error message
+    let errorMessage = event.detail;
+    
+    // Look for specific memory errors and provide better messages
+    if (errorMessage.includes('memory') && errorMessage.includes('bounds')) {
+        errorMessage = 'The search operation requires more memory than available. Try searching smaller text sections or use simpler search terms.';
+    } else if (errorMessage.includes('allocation') || errorMessage.includes('allocate')) {
+        errorMessage = 'Not enough memory available for this search. Try searching smaller text sections.';
+    } else if (errorMessage.includes('stack overflow')) {
+        errorMessage = 'The search operation is too complex for the available stack space. Try searching smaller text sections.';
+    }
+    
+    // Include search time in the error message if available
+    if (searchDuration > 0) {
+        errorMessage += ` (Search ran for ${searchDuration.toFixed(2)}s before failing)`;
+    }
+    
+    // Show alert for better visibility
+    alert('Search Error: ' + errorMessage);
+    
+    // Create error message object
+    const errorResultMessage = {
         type: 'MATCH_COUNT',
-        count: 0
-    });
+        count: 0,
+        error: errorMessage,
+        searchTime: searchDuration
+    };
+    
+    // Ensure error message gets delivered to stop the timer
+    const deliverErrorMessage = () => {
+        console.log('[CONTENT] Sending error message to stop timer:', errorResultMessage);
+        
+        // Try port first
+        if (port) {
+            try {
+                port.postMessage(errorResultMessage);
+                console.log('[CONTENT] Error sent via port');
+            } catch (e) {
+                console.error('[CONTENT] Port error message failed, falling back to runtime:', e);
+                sendViaRuntime(errorResultMessage);
+            }
+        } else {
+            sendViaRuntime(errorResultMessage);
+        }
+    };
+    
+    // Send initial error message
+    deliverErrorMessage();
+    
+    // Send again after a delay as backup
+    setTimeout(deliverErrorMessage, 300);
+    
+    // And one more time with a longer delay as final backup
+    setTimeout(deliverErrorMessage, 1000);
 });
 
 // Helper function to normalize text while preserving word boundaries
