@@ -529,9 +529,15 @@ window.addEventListener('runSearch', async (event) => {
                 start: start,
                 length: length,
                 wordCount: wordCount,
-                word1Position: word1PosInMatch,
-                word2Position: word2PosInMatch,
-                actualGap
+                word1: word1,
+                word2: word2,
+                word1Position: start + word1PosInMatch,
+                word2Position: start + word2PosInMatch,
+                actualGap,
+                context: text.substring(
+                    Math.max(0, start - 20),
+                    Math.min(text.length, start + length + 20)
+                )
             });
             
             matchCount++;
