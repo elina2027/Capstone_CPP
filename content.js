@@ -33,80 +33,6 @@ uiStyles.textContent = `
         background-color: #f44336;
     }
     
-    .wasm-search-controls {
-        position: fixed;
-        top: 40px;
-        right: 20px;
-        background-color: var(--bg-color);
-        border-radius: var(--border-radius);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.15);
-        padding: 12px;
-        z-index: 2147483646;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        transition: all 0.3s ease;
-        max-width: 200px;
-    }
-    
-    .wasm-search-toggle {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: pointer;
-        user-select: none;
-    }
-    
-    .wasm-toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 36px;
-        height: 20px;
-    }
-    
-    .wasm-toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-    
-    .wasm-toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #ccc;
-        transition: .3s;
-        border-radius: 20px;
-    }
-    
-    .wasm-toggle-slider:before {
-        position: absolute;
-        content: "";
-        height: 16px;
-        width: 16px;
-        left: 2px;
-        bottom: 2px;
-        background-color: white;
-        transition: .3s;
-        border-radius: 50%;
-    }
-    
-    input:checked + .wasm-toggle-slider {
-        background-color: var(--primary-color);
-    }
-    
-    input:checked + .wasm-toggle-slider:before {
-        transform: translateX(16px);
-    }
-    
-    .wasm-search-label {
-        font-size: 12px;
-        line-height: 1.2;
-    }
-    
     .wasm-search-highlight {
         background-color: rgba(255, 213, 79, 0.6);
         border-radius: 2px;
@@ -175,43 +101,8 @@ banner.className = 'wasm-search-banner';
 banner.textContent = 'WebAssembly Search - Loading...';
 uiContainer.appendChild(banner);
 
-// Create controls container
-const controlsContainer = document.createElement('div');
-controlsContainer.className = 'wasm-search-controls';
-uiContainer.appendChild(controlsContainer);
-
-// Create case sensitivity toggle
-const caseToggleWrapper = document.createElement('div');
-caseToggleWrapper.className = 'wasm-search-toggle';
-
-const caseToggleLabel = document.createElement('span');
-caseToggleLabel.className = 'wasm-search-label';
-caseToggleLabel.textContent = 'Case insensitive';
-
-const toggleContainer = document.createElement('label');
-toggleContainer.className = 'wasm-toggle-switch';
-
-const caseToggle = document.createElement('input');
-caseToggle.type = 'checkbox';
-caseToggle.checked = true; // Default to case insensitive
-
-const toggleSlider = document.createElement('span');
-toggleSlider.className = 'wasm-toggle-slider';
-
-toggleContainer.appendChild(caseToggle);
-toggleContainer.appendChild(toggleSlider);
-caseToggleWrapper.appendChild(toggleContainer);
-caseToggleWrapper.appendChild(caseToggleLabel);
-controlsContainer.appendChild(caseToggleWrapper);
-
-// Store case sensitivity setting
-window.caseSensitive = !caseToggle.checked;
-caseToggle.addEventListener('change', () => {
-    window.caseSensitive = !caseToggle.checked;
-    console.log('[CONTENT] Case sensitivity changed:', {
-        caseSensitive: window.caseSensitive
-    });
-});
+// Default case sensitivity setting (will be updated from popup)
+window.caseSensitive = false;
 
 // Update banner function
 function updateBanner(text, isError = false) {
