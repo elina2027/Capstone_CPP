@@ -27,90 +27,8 @@ console.log('[CONTENT] Starting initialization');
 const style = document.createElement('style');
 style.textContent = `
     .wasm-search-highlight {
-        background-color: #ffd54f;
-        border-radius: 3px;
-        padding: 2px 0;
-        margin: 0 -2px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-        transition: all 0.2s ease-in-out;
-        cursor: pointer;
-        position: relative;
-        display: inline-block;
-    }
-    
-    .wasm-search-highlight:hover {
-        background-color: #ffb300;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
-    
-    .wasm-search-highlight.active {
-        background-color: #ff8f00;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.3);
-    }
-    
-    @keyframes highlight-pulse {
-        0% {
-            transform: scale(1);
-            background-color: #ffd54f;
-        }
-        50% {
-            transform: scale(1.05);
-            background-color: #ffb300;
-        }
-        100% {
-            transform: scale(1);
-            background-color: #ffd54f;
-        }
-    }
-    
-    .wasm-search-highlight.new {
-        animation: highlight-pulse 0.5s ease-in-out;
-    }
-    
-    /* Navigation buttons */
-    .wasm-search-nav {
-        position: fixed;
-        right: 20px;
-        bottom: 20px;
-        display: flex;
-        gap: 10px;
-        z-index: 999999999;
-        background: white;
-        padding: 10px;
-        border-radius: 8px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-    }
-    
-    .wasm-search-nav button {
-        background: #4CAF50;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        transition: all 0.2s ease;
-    }
-    
-    .wasm-search-nav button:hover {
-        background: #43A047;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
-    
-    .wasm-search-nav button:disabled {
-        background: #ccc;
-        cursor: not-allowed;
-    }
-    
-    .wasm-search-nav .count {
-        font-size: 14px;
-        color: #666;
-        margin: 0 10px;
-        display: flex;
-        align-items: center;
+        background-color: yellow;
+        padding: 2px;
     }
 `;
 document.head.appendChild(style);
@@ -451,19 +369,12 @@ function highlightMatches(matches) {
         matches.map(m => ({
             text: m.text.trim(),
             start: m.start,
-            length: m.length,
-            wordCount: m.wordCount,
-            word1: m.word1,
-            word2: m.word2
+            length: m.length
         }))
     );
     
     // Remove existing highlights first
     removeHighlights();
-    
-    // Reset navigation
-    currentMatchIndex = -1;
-    totalMatches = matches.length;
     
     // Get fresh text mapping
     console.log('[CONTENT] Creating text position mapping...');
@@ -476,21 +387,9 @@ function highlightMatches(matches) {
     
     const { original, normalized, positions } = window.textPositionMap;
     
-    console.log('[CONTENT] Text mapping:', {
-        originalLength: original.length,
-        normalizedLength: normalized.length,
-        nodeCount: positions.length
-    });
-    
-    // Simple approach: create highlights directly
+    // Process each match
     for (const match of matches) {
-        console.log('[CONTENT] Processing match:', {
-            start: match.start,
-            length: match.length,
-            text: normalized.substr(match.start, match.length)
-        });
-        
-        // Find a valid text node containing this match
+        // Find the node containing this match
         let matchNode = null;
         let matchPosition = null;
         
@@ -507,74 +406,53 @@ function highlightMatches(matches) {
             }
         }
         
-        if (!matchNode) {
-            console.error('[CONTENT] Could not find node for match:', match);
-            continue;
-        }
-        
-        console.log('[CONTENT] Found match node:', {
-            node: matchNode.textContent,
-            parent: matchNode.parentNode.tagName,
-            position: matchPosition
-        });
+        if (!matchNode) continue;
         
         try {
-            // Get parent info
+            // Calculate position within the node
+            const offsetInNode = match.start - matchPosition.normalizedStart;
             const parent = matchNode.parentNode;
             
             // Skip if already highlighted
             if (parent.classList && parent.classList.contains('wasm-search-highlight')) {
-                console.log('[CONTENT] Node already highlighted, skipping');
                 continue;
             }
             
-            // Calculate position within the node
-            const relativeStart = match.start - matchPosition.normalizedStart;
-            
-            // Create highlight
+            // Create highlight element
             const highlight = document.createElement('span');
-            highlight.className = 'wasm-search-highlight new';
-            highlight.textContent = match.text;
-            highlight.setAttribute('data-match-start', match.start);
-            highlight.setAttribute('data-match-length', match.length);
-            highlight.setAttribute('data-word1', match.word1 || '');
-            highlight.setAttribute('data-word2', match.word2 || '');
+            highlight.className = 'wasm-search-highlight';
             
-            // Add click handler
-            highlight.addEventListener('click', () => {
-                const highlights = document.querySelectorAll('.wasm-search-highlight');
-                const index = Array.from(highlights).indexOf(highlight);
-                scrollToMatch(index);
-            });
+            // Get the actual text of the match
+            const matchLength = Math.min(
+                match.length,
+                matchPosition.normalizedLength - offsetInNode
+            );
             
-            // Simple direct DOM replacement - simpler approach that's less error-prone
-            const highlightContainer = document.createElement('span');
-            highlightContainer.className = 'highlight-container';
+            // Create text segments
+            const beforeText = matchNode.textContent.substring(0, offsetInNode);
+            const matchText = matchNode.textContent.substring(offsetInNode, offsetInNode + matchLength);
+            const afterText = matchNode.textContent.substring(offsetInNode + matchLength);
             
-            // Add the highlight directly to the page
-            const paragraph = document.createElement('p');
-            paragraph.appendChild(highlight);
-            document.body.appendChild(paragraph);
+            // Perform the DOM manipulation
+            const beforeNode = beforeText ? document.createTextNode(beforeText) : null;
+            const afterNode = afterText ? document.createTextNode(afterText) : null;
             
-            console.log('[CONTENT] Successfully created highlight');
-            totalMatches++;
+            // Set the highlight text
+            highlight.textContent = matchText;
+            
+            // Replace the original node
+            if (beforeNode) parent.insertBefore(beforeNode, matchNode);
+            parent.insertBefore(highlight, matchNode);
+            if (afterNode) parent.insertBefore(afterNode, matchNode);
+            
+            // Remove the original node
+            parent.removeChild(matchNode);
+            
         } catch (error) {
             console.error('[CONTENT] Error creating highlight:', error);
         }
     }
     
-    // Update match count and navigation
-    console.log('[CONTENT] Highlight process complete:', {
-        expectedMatches: matches.length,
-        actualHighlights: totalMatches
-    });
-    
-    // Scroll to first match if any found
-    if (totalMatches > 0) {
-        setTimeout(() => {
-            scrollToMatch(0);
-        }, 100);
-    }
-    
-    updateNavigation();
+    // Update banner with match count
+    updateBanner(`Found ${matches.length} match${matches.length !== 1 ? 'es' : ''}`);
 } 
