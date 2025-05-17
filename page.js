@@ -349,7 +349,7 @@ window.addEventListener('wasmInit', (event) => {
 
 // Handle search requests
 window.addEventListener('runSearch', async (event) => {
-    const { word1, word2, gap } = event.detail;
+    const { word1, word2, gap, caseSensitive } = event.detail;
     
     console.log('[PAGE] Search requested with state:', {
         wasmInitialized: window.wasmInitialized,
@@ -357,6 +357,7 @@ window.addEventListener('runSearch', async (event) => {
         heapExists: isMemoryInitialized(),
         searchFunctionExists: !!window.searchFunction,
         memorySize: window.wasmMemory.buffer.byteLength,
+        caseSensitive,
         heapViews: {
             HEAP8: !!window.Module.HEAP8,
             HEAP16: !!window.Module.HEAP16,
@@ -385,20 +386,38 @@ window.addEventListener('runSearch', async (event) => {
             throw new Error('Invalid search parameters');
         }
         
+        console.log('[PAGE] Search parameters:', {
+            caseSensitive,
+            word1,
+            word2,
+            gap,
+            textLength: text.length
+        });
+        
         // Find the actual positions of the words first
-        const word1Pos = text.indexOf(word1);
-        const word2Pos = text.indexOf(word2);
+        const word1Pos = caseSensitive ? text.indexOf(word1) : text.toLowerCase().indexOf(word1.toLowerCase());
+        const word2Pos = caseSensitive ? text.indexOf(word2) : text.toLowerCase().indexOf(word2.toLowerCase());
         
         console.log('[PAGE] Running search:', {
             textLength: text.length,
             word1,
             word2,
             gap,
+            caseSensitive,
             word1Position: word1Pos,
             word2Position: word2Pos,
-            actualGap: word2Pos - (word1Pos + word1.length),
+            actualGap: word2Pos !== -1 && word1Pos !== -1 ? word2Pos - (word1Pos + word1.length) : 'N/A',
             textPreview: text.substring(0, 100) + '...'
         });
+        
+        // Check if words exist in the text at all
+        if (word1Pos === -1 || word2Pos === -1) {
+            console.log('[PAGE] One or both words not found in text');
+            window.dispatchEvent(new CustomEvent('searchComplete', { 
+                detail: { count: 0, matches: [] }
+            }));
+            return;
+        }
         
         // Ensure memory has enough space
         const requiredBytes = text.length * 4 + 1024; // Extra space for results
@@ -409,11 +428,26 @@ window.addEventListener('runSearch', async (event) => {
         // Update memory views before the search
         window.Module.updateMemoryViews();
         
+        // Apply case sensitivity in JavaScript if needed
+        let searchText = text;
+        let searchWord1 = word1;
+        let searchWord2 = word2;
+        
+        if (!caseSensitive) {
+            // For case-insensitive search, convert everything to lowercase
+            searchText = text.toLowerCase();
+            searchWord1 = word1.toLowerCase();
+            searchWord2 = word2.toLowerCase();
+            console.log('[PAGE] Using case-insensitive search');
+        } else {
+            console.log('[PAGE] Using case-sensitive search');
+        }
+        
         // Call the search function
         const resultPtr = window.searchFunction(
-            text, text.length,
-            word1, word1.length,
-            word2, word2.length,
+            searchText, searchText.length,
+            searchWord1, searchWord1.length,
+            searchWord2, searchWord2.length,
             gap
         );
         
@@ -498,11 +532,19 @@ window.addEventListener('runSearch', async (event) => {
             }
             
             // Extract the matched text
-            const matchText = text.substring(start, start + length);
+            const matchText = searchText.substring(start, start + length);
+            
+            // For displaying, we need to use the original text
+            const originalMatchText = text.substring(start, start + length);
             
             // Verify match contains both words
-            const hasWord1 = matchText.includes(word1);
-            const hasWord2 = matchText.includes(word2);
+            const hasWord1 = !caseSensitive ? 
+                matchText.includes(searchWord1) : 
+                matchText.includes(word1);
+                
+            const hasWord2 = !caseSensitive ? 
+                matchText.includes(searchWord2) : 
+                matchText.includes(word2);
             
             if (!hasWord1 || !hasWord2) {
                 console.error('[PAGE] Match missing search words:', {
@@ -511,29 +553,38 @@ window.addEventListener('runSearch', async (event) => {
                     hasWord2,
                     start,
                     length,
-                    word1,
-                    word2
+                    word1: !caseSensitive ? searchWord1 : word1,
+                    word2: !caseSensitive ? searchWord2 : word2
                 });
                 // Skip this match but continue processing
                 offset += 3;
                 continue;
             }
             
-            // Calculate actual gap between words in this match
-            const word1PosInMatch = matchText.indexOf(word1);
-            const word2PosInMatch = matchText.indexOf(word2);
-            const actualGap = word2PosInMatch - (word1PosInMatch + word1.length);
+            // Find positions in either the case-sensitive or insensitive text
+            let word1PosInMatch, word2PosInMatch;
+            
+            if (!caseSensitive) {
+                word1PosInMatch = matchText.indexOf(searchWord1);
+                word2PosInMatch = matchText.indexOf(searchWord2);
+            } else {
+                word1PosInMatch = matchText.indexOf(word1);
+                word2PosInMatch = matchText.indexOf(word2);
+            }
+            
+            const actualGap = word2PosInMatch - (word1PosInMatch + (!caseSensitive ? searchWord1.length : word1.length));
             
             matches.push({
-                text: matchText,
+                text: originalMatchText, // Use original text for display
                 start: start,
                 length: length,
                 wordCount: wordCount,
-                word1: word1,
+                word1: word1, // Use original words
                 word2: word2,
                 word1Position: start + word1PosInMatch,
                 word2Position: start + word2PosInMatch,
                 actualGap,
+                caseSensitive,
                 context: text.substring(
                     Math.max(0, start - 20),
                     Math.min(text.length, start + length + 20)

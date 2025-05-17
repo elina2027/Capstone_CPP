@@ -292,12 +292,14 @@ window.addEventListener('searchComplete', (event) => {
     if (count > 0) {
         // Get search parameters from the most recent search
         const searchParams = window.lastSearchParams || {};
+        console.log('[CONTENT] Using search params for highlighting:', searchParams);
         
         // Add search words to matches
         const matchesWithWords = matches.map(match => ({
             ...match,
             word1: searchParams.word1,
-            word2: searchParams.word2
+            word2: searchParams.word2,
+            caseSensitive: searchParams.caseSensitive
         }));
         
         // Add new highlights
@@ -334,13 +336,14 @@ window.addEventListener('message', event => {
         
         // Update case sensitivity setting from the message
         window.caseSensitive = caseSensitive;
+        console.log('[CONTENT] Set case sensitivity to:', window.caseSensitive);
         
         // Store search parameters for later use
         window.lastSearchParams = { word1, word2, gap, caseSensitive };
         
         // Dispatch search request to page context
         window.dispatchEvent(new CustomEvent('runSearch', {
-            detail: { word1, word2, gap }
+            detail: { word1, word2, gap, caseSensitive }
         }));
     } else if (event.data.type === 'CLEAN_SEARCH') {
         console.log('[CONTENT] Cleaning search...');
@@ -497,8 +500,17 @@ function highlightMatches(matches) {
         }
         
         // Get the actual text from the document at this position
-        const caseFlag = window.caseSensitive ? '' : 'i';
-        const searchRegex = new RegExp(`${match.word1}.*?${match.word2}`, caseFlag);
+        const caseFlag = match.caseSensitive === false ? 'i' : '';
+        console.log('[CONTENT] Using case sensitivity flag:', caseFlag, 'based on match.caseSensitive:', match.caseSensitive);
+        
+        // Safely escape regex special characters in the search words
+        const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const word1Pattern = escapeRegex(match.word1);
+        const word2Pattern = escapeRegex(match.word2);
+        
+        // Build a regex that finds both words with anything in between
+        const searchRegex = new RegExp(`${word1Pattern}.*?${word2Pattern}`, caseFlag);
+        
         const fullText = getDocumentText();
         const context = fullText.substring(
             Math.max(0, match.start - 10),
@@ -508,7 +520,9 @@ function highlightMatches(matches) {
         console.log('[CONTENT] Match context:', {
             context,
             searchRegex: searchRegex.toString(),
-            caseSensitive: window.caseSensitive
+            caseSensitive: match.caseSensitive,
+            windowCaseSensitive: window.caseSensitive,
+            flagUsed: caseFlag
         });
         
         // Find the text in the document
