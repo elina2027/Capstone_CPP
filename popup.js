@@ -82,11 +82,38 @@ document.getElementById('cleanBtn').addEventListener('click', () => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('[POPUP] Received message:', message);
   
-  if (message.type === 'MATCH_COUNT') {
-    const matchCountDiv = document.getElementById('matchCount');
-    matchCountDiv.textContent = `Total matches: ${message.count}`;
-    console.log('[POPUP] Updated match count display to:', message.count);
+  try {
+    if (message.type === 'MATCH_COUNT') {
+      const matchCountDiv = document.getElementById('matchCount');
+      if (matchCountDiv) {
+        matchCountDiv.textContent = `Total matches: ${message.count}`;
+        console.log('[POPUP] Updated match count display to:', message.count);
+      } else {
+        console.error('[POPUP] Could not find matchCount element');
+      }
+    }
+    
+    // Always send a response to close the message channel properly
+    if (sendResponse) {
+      sendResponse({ received: true });
+    }
+  } catch (error) {
+    console.error('[POPUP] Error processing message:', error);
+    
+    // Try to update UI with error
+    try {
+      const matchCountDiv = document.getElementById('matchCount');
+      if (matchCountDiv) {
+        matchCountDiv.textContent = 'Error processing results';
+      }
+    } catch (e) {
+      // If even this fails, just log it
+      console.error('[POPUP] Fatal error updating UI:', e);
+    }
   }
+  
+  // Return true to indicate async response
+  return true;
 });
 
 function runSearch(word1, word2, gap, caseSensitive) {

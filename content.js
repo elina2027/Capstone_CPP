@@ -101,6 +101,32 @@ banner.className = 'wasm-search-banner';
 banner.textContent = 'WebAssembly Search - Loading...';
 uiContainer.appendChild(banner);
 
+// Helper function to check if extension context is valid
+function isExtensionContextValid() {
+    try {
+        // This will throw if the context is invalid
+        chrome.runtime.getURL('');
+        return true;
+    } catch (e) {
+        console.log('[CONTENT] Extension context is invalid');
+        return false;
+    }
+}
+
+// Safe wrapper for sending messages to the extension
+function sendMessageToExtension(message) {
+    if (!isExtensionContextValid()) {
+        console.log('[CONTENT] Cannot send message - extension context invalid');
+        return;
+    }
+
+    try {
+        chrome.runtime.sendMessage(message);
+    } catch (error) {
+        console.log('[CONTENT] Failed to send message: ', error.message);
+    }
+}
+
 // Default case sensitivity setting (will be updated from popup)
 window.caseSensitive = false;
 
@@ -219,6 +245,18 @@ window.addEventListener('wasmReady', () => {
     updateBanner('Ready for search!');
 });
 
+// Add window unload listener to clean up gracefully
+window.addEventListener('unload', () => {
+    console.log('[CONTENT] Page unloading - cleaning up extension resources');
+    removeHighlights();
+});
+
+// Add a listener for browser extension reload/disconnect
+window.addEventListener('beforeunload', () => {
+    console.log('[CONTENT] Page about to unload - cleaning up');
+    removeHighlights();
+});
+
 window.addEventListener('wasmError', () => {
     const error = document.wrappedJSObject?.wasmError || 'Unknown error';
     console.error('[CONTENT] WebAssembly initialization failed:', error);
@@ -267,7 +305,7 @@ window.addEventListener('searchComplete', (event) => {
         updateBanner(`Found ${count} match${count > 1 ? 'es' : ''}`);
         
         // Send match count back to popup
-        chrome.runtime.sendMessage({
+        sendMessageToExtension({
             type: 'MATCH_COUNT',
             count: count,
             pageCount: count,
@@ -277,7 +315,7 @@ window.addEventListener('searchComplete', (event) => {
         updateBanner('No matches found');
         
         // Send zero count back to popup
-        chrome.runtime.sendMessage({
+        sendMessageToExtension({
             type: 'MATCH_COUNT',
             count: 0,
             pageCount: 0,
@@ -319,7 +357,7 @@ window.addEventListener('message', event => {
 window.addEventListener('searchError', (event) => {
     console.error('[CONTENT] Search error:', event.detail);
     updateBanner('Search error: ' + event.detail, true);
-    chrome.runtime.sendMessage({
+    sendMessageToExtension({
         type: 'MATCH_COUNT',
         count: 0
     });
