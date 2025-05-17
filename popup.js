@@ -62,7 +62,13 @@ document.getElementById('searchBtn').addEventListener('click', () => {
 document.getElementById('cleanBtn').addEventListener('click', () => {
   console.log('[POPUP] Clean button clicked');
   
+  // Reset the search results display
   document.getElementById('matchCount').textContent = 'Total matches: 0';
+  
+  // Reset input fields to default values
+  document.getElementById('word1').value = '';
+  document.getElementById('word2').value = '';
+  document.getElementById('gap').value = '20'; // Reset to default gap value
   
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
     console.log('[POPUP] Found active tab for cleaning:', tab);
