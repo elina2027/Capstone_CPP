@@ -33,6 +33,51 @@ void debugVector(const std::vector<int>& vec, const char* label) {
     }
 }
 
+// Helper function to check if a character is part of a word
+bool isWordChar(char c) {
+    return std::isalnum(c) || c == '\'' || c == '-' || c == '_';
+}
+
+// Helper function to check word boundaries
+bool isWordBoundary(const std::string& text, size_t pos, const std::string& word) {
+    // Check start boundary
+    bool validStart = (pos == 0 || !isWordChar(text[pos - 1]));
+    
+    // Check end boundary
+    size_t endPos = pos + word.length();
+    bool validEnd = (endPos >= text.length() || !isWordChar(text[endPos]));
+    
+    printf("Word boundary check at pos %zu: validStart=%d, validEnd=%d\n", 
+           pos, validStart, validEnd);
+           
+    return validStart && validEnd;
+}
+
+// Count words between positions
+int countWordsBetween(const std::string& text, size_t start, size_t end) {
+    if (start >= end) {
+        printf("countWordsBetween: Invalid range (start=%zu, end=%zu)\n", start, end);
+        return 0;
+    }
+    
+    int words = 0;
+    bool inWord = false;
+    
+    for (size_t i = start; i < end; i++) {
+        if (isWordChar(text[i])) {
+            if (!inWord) {
+                words++;
+                inWord = true;
+            }
+        } else {
+            inWord = false;
+        }
+    }
+    
+    printf("countWordsBetween: start=%zu, end=%zu, words=%d\n", start, end, words);
+    return std::max(0, words - 1);  // Return gaps between words
+}
+
 EMSCRIPTEN_KEEPALIVE
 int* search(const char* text, int textLen, const char* word1, int word1Len, 
            const char* word2, int word2Len, int gap) {
@@ -54,43 +99,6 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
     results.clear();
     debugVector(results, "After clear");
     
-    // Helper function to check if a character is part of a word
-    auto isWordChar = [](char c) {
-        return std::isalnum(c) || c == '\'' || c == '-';
-    };
-    
-    // Count words between the matches
-    auto countWords = [&isWordChar](const std::string& text, size_t start, size_t end) {
-        if (start >= end) {
-            printf("countWords: start >= end (start=%zu, end=%zu)\n", start, end);
-            return 0;
-        }
-        
-        int words = 0;
-        bool inWord = false;
-        
-        // Skip any punctuation at the start
-        while (start < end && !isWordChar(text[start])) {
-            start++;
-        }
-        
-        for (size_t i = start; i < end; i++) {
-            if (isWordChar(text[i])) {
-                if (!inWord) {
-                    words++;
-                    inWord = true;
-                }
-            } else {
-                inWord = false;
-            }
-        }
-        
-        int result = std::max(0, words - 1);
-        printf("countWords: start=%zu, end=%zu, words=%d, result=%d\n", 
-               start, end, words, result);
-        return result;
-    };
-    
     size_t pos = 0;
     int matchCount = 0;
     const int MAX_MATCHES = 100; // Prevent excessive matches
@@ -105,12 +113,8 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
             break;
         }
         
-        // Verify this is a word boundary
-        bool isValidStart = (pos == 0 || !isWordChar(str[pos-1]));
-        bool isValidEnd = (pos + w1.length() >= str.length() || !isWordChar(str[pos + w1.length()]));
-        printf("Word boundary check: start=%d, end=%d\n", isValidStart, isValidEnd);
-        
-        if (isValidStart && isValidEnd) {
+        // Check word boundaries for word1
+        if (isWordBoundary(str, pos, w1)) {
             size_t start2 = pos + w1.length();
             printf("Looking for word2 starting at position %zu\n", start2);
             
@@ -119,16 +123,11 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
             while (found != std::string::npos && found < str.length()) {
                 printf("Found word2 at position %zu\n", found);
                 
-                // Verify this is a word boundary
-                bool isValid2Start = (found == 0 || !isWordChar(str[found-1]));
-                bool isValid2End = (found + w2.length() >= str.length() || !isWordChar(str[found + w2.length()]));
-                printf("Word2 boundary check: start=%d, end=%d\n", isValid2Start, isValid2End);
-                
-                if (isValid2Start && isValid2End) {
-                    // Count words between the matches
-                    int words = countWords(str, start2, found);
-                    printf("Found potential match: pos=%zu, found=%zu, words=%d\n", 
-                           pos, found, words);
+                // Check word boundaries for word2
+                if (isWordBoundary(str, found, w2)) {
+                    // Count words between matches
+                    int words = countWordsBetween(str, start2, found);
+                    printf("Words between matches: %d (gap=%d)\n", words, gap);
                     
                     if (words <= gap) {
                         // Store match information
