@@ -6,7 +6,8 @@ window.wasmMemoryInitialized = false;
 // Create WebAssembly memory once and reuse it
 window.wasmMemory = new WebAssembly.Memory({
     initial: 256,  // 16MB (256 pages * 64KB)
-    maximum: 512   // 32MB (512 pages * 64KB)
+    maximum: 512,  // 32MB (512 pages * 64KB)
+    shared: false  // Not using shared memory
 });
 
 // Function to check if memory is properly initialized
@@ -129,130 +130,215 @@ window.addEventListener('wasmInit', (event) => {
 
     // Set up the Module configuration before loading search.js
     window.Module = {
-        wasmMemory: window.wasmMemory, // Use the globally created memory
-        INITIAL_MEMORY: 16777216, // 16MB (256 pages * 64KB per page)
-        MAXIMUM_MEMORY: 33554432, // 32MB (512 pages * 64KB per page)
+        // Use our pre-created memory
+        wasmMemory: window.wasmMemory,
         
-        // Add updateMemoryViews function
+        // Memory configuration matching compilation flags
+        INITIAL_MEMORY: 16777216,  // 16MB (256 pages * 64KB)
+        MAXIMUM_MEMORY: 33554432,  // 32MB (512 pages * 64KB)
+        
+        // Memory management functions
         updateMemoryViews: function() {
-            if (this.wasmMemory && this.wasmMemory.buffer) {
-                this.HEAP8 = new Int8Array(this.wasmMemory.buffer);
-                this.HEAP16 = new Int16Array(this.wasmMemory.buffer);
-                this.HEAP32 = new Int32Array(this.wasmMemory.buffer);
-                this.HEAPU8 = new Uint8Array(this.wasmMemory.buffer);
-                this.HEAPU16 = new Uint16Array(this.wasmMemory.buffer);
-                this.HEAPU32 = new Uint32Array(this.wasmMemory.buffer);
-                this.HEAPF32 = new Float32Array(this.wasmMemory.buffer);
-                this.HEAPF64 = new Float64Array(this.wasmMemory.buffer);
-                console.log('[PAGE] Memory views updated successfully');
-                return true;
+            if (!this.wasmMemory || !this.wasmMemory.buffer) {
+                console.error('[PAGE] Cannot update memory views - no memory buffer available');
+                return false;
             }
-            return false;
+            
+            try {
+                // Check if HEAP views are available from Module
+                if (!Module.HEAP8 || !Module.HEAP32) {
+                    console.log('[PAGE] Creating new memory views');
+                    
+                    // Create views of the memory buffer
+                    Object.defineProperties(this, {
+                        'HEAP8': {
+                            get: function() {
+                                if (!this._HEAP8 || this._HEAP8.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAP8 = new Int8Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAP8;
+                            }
+                        },
+                        'HEAP16': {
+                            get: function() {
+                                if (!this._HEAP16 || this._HEAP16.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAP16 = new Int16Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAP16;
+                            }
+                        },
+                        'HEAP32': {
+                            get: function() {
+                                if (!this._HEAP32 || this._HEAP32.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAP32 = new Int32Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAP32;
+                            }
+                        },
+                        'HEAPU8': {
+                            get: function() {
+                                if (!this._HEAPU8 || this._HEAPU8.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAPU8 = new Uint8Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAPU8;
+                            }
+                        },
+                        'HEAPU16': {
+                            get: function() {
+                                if (!this._HEAPU16 || this._HEAPU16.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAPU16 = new Uint16Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAPU16;
+                            }
+                        },
+                        'HEAPU32': {
+                            get: function() {
+                                if (!this._HEAPU32 || this._HEAPU32.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAPU32 = new Uint32Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAPU32;
+                            }
+                        },
+                        'HEAPF32': {
+                            get: function() {
+                                if (!this._HEAPF32 || this._HEAPF32.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAPF32 = new Float32Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAPF32;
+                            }
+                        },
+                        'HEAPF64': {
+                            get: function() {
+                                if (!this._HEAPF64 || this._HEAPF64.buffer !== this.wasmMemory.buffer) {
+                                    this._HEAPF64 = new Float64Array(this.wasmMemory.buffer);
+                                }
+                                return this._HEAPF64;
+                            }
+                        }
+                    });
+                }
+                
+                console.log('[PAGE] Memory views updated successfully:', {
+                    buffer: this.wasmMemory.buffer.byteLength,
+                    HEAP32: this.HEAP32.length,
+                    views: {
+                        HEAP8: !!this.HEAP8,
+                        HEAP16: !!this.HEAP16,
+                        HEAP32: !!this.HEAP32,
+                        HEAPU8: !!this.HEAPU8,
+                        HEAPU16: !!this.HEAPU16,
+                        HEAPU32: !!this.HEAPU32,
+                        HEAPF32: !!this.HEAPF32,
+                        HEAPF64: !!this.HEAPF64
+                    }
+                });
+                return true;
+            } catch (error) {
+                console.error('[PAGE] Error updating memory views:', error);
+                return false;
+            }
         },
         
+        // WebAssembly file location
         locateFile: function(path) {
             if (path.endsWith('.wasm')) {
                 return wasmUrl;
             }
             return path;
         },
+        
+        // Initialization hooks
         preRun: [
             function() {
-                console.log('[PAGE] PreRun - Module setup:', {
-                    hasMemory: !!window.Module.wasmMemory,
-                    memoryBuffer: !!window.Module.wasmMemory.buffer,
-                    memoryLength: window.Module.wasmMemory.buffer.byteLength
-                });
-                // Try to initialize memory views
+                console.log('[PAGE] PreRun - Initializing memory');
                 window.Module.updateMemoryViews();
             }
         ],
+        
         postRun: [
             function() {
-                console.log('[PAGE] PostRun - Memory status:', {
-                    hasMemory: !!window.Module.wasmMemory,
-                    hasHeap: !!window.Module.HEAP32,
-                    memoryBuffer: !!window.Module.wasmMemory.buffer,
-                    memoryLength: window.Module.wasmMemory.buffer.byteLength
-                });
-                // Ensure memory views are set up
+                console.log('[PAGE] PostRun - Verifying memory setup');
                 window.Module.updateMemoryViews();
             }
         ],
+        
+        // Error handling
         onAbort: function(what) {
-            console.error('[PAGE] WebAssembly aborted:', what);
-            window.wasmError = 'WebAssembly aborted: ' + what;
+            const error = 'WebAssembly aborted: ' + what;
+            console.error('[PAGE]', error);
+            window.wasmError = error;
             window.dispatchEvent(new CustomEvent('wasmError'));
         },
+        
+        // WebAssembly instantiation
         instantiateWasm: function(imports, successCallback) {
             console.log('[PAGE] Starting WebAssembly instantiation');
             
-            // Add memory to the imports
+            // Ensure memory is in imports
             if (!imports.env) {
                 imports.env = {};
             }
             imports.env.memory = window.wasmMemory;
             
-            // Log imports object
-            console.log('[PAGE] WebAssembly imports:', JSON.stringify({
-                envKeys: Object.keys(imports.env),
-                hasMemory: !!imports.env.memory,
-                memoryPages: imports.env.memory.buffer.byteLength / 65536
-            }, null, 2));
+            // Log memory configuration
+            console.log('[PAGE] Memory configuration:', {
+                initial: window.wasmMemory.buffer.byteLength / 65536,
+                maximum: 512,
+                currentSize: window.wasmMemory.buffer.byteLength
+            });
             
+            // Try streaming instantiation first
             WebAssembly.instantiateStreaming(fetch(wasmUrl), imports)
                 .then(output => {
                     console.log('[PAGE] WebAssembly instantiated successfully');
-                    // Initialize memory views right after instantiation
                     window.Module.updateMemoryViews();
                     successCallback(output.instance);
                 })
                 .catch(err => {
-                    console.error('[PAGE] WebAssembly instantiation failed:', err);
-                    // Try fallback to ArrayBuffer instantiation
+                    console.error('[PAGE] Streaming instantiation failed:', err);
+                    console.log('[PAGE] Falling back to ArrayBuffer instantiation');
+                    
+                    // Fallback to ArrayBuffer instantiation
                     fetch(wasmUrl)
                         .then(response => response.arrayBuffer())
                         .then(bytes => WebAssembly.instantiate(bytes, imports))
                         .then(output => {
-                            console.log('[PAGE] WebAssembly instantiated successfully (fallback)');
-                            // Initialize memory views after fallback instantiation
+                            console.log('[PAGE] Fallback instantiation successful');
                             window.Module.updateMemoryViews();
                             successCallback(output.instance);
                         })
                         .catch(err => {
-                            console.error('[PAGE] WebAssembly instantiation failed (fallback):', err);
+                            console.error('[PAGE] Fallback instantiation failed:', err);
                             window.wasmError = err.message;
                             window.dispatchEvent(new CustomEvent('wasmError'));
                         });
                 });
-            return {}; // Return empty object to indicate async instantiation
+            
+            return {}; // Async instantiation
         },
+        
+        // Runtime initialization
         onRuntimeInitialized: async function() {
             console.log('[PAGE] WebAssembly runtime initialized');
             try {
-                // Wait for memory to be properly initialized
                 await waitForMemory();
-                
-                // Create search function using Module.cwrap
                 window.searchFunction = Module.cwrap('search', 'number', 
                     ['string', 'number', 'string', 'number', 'string', 'number', 'number']);
                 console.log('[PAGE] Search function created');
                 window.wasmInitialized = true;
                 window.dispatchEvent(new CustomEvent('wasmReady'));
             } catch (error) {
-                console.error('[PAGE] Error during initialization:', error);
+                console.error('[PAGE] Initialization error:', error);
                 window.wasmError = error.message;
                 window.dispatchEvent(new CustomEvent('wasmError'));
             }
         }
     };
 
-    // Now load search.js
+    // Load the JavaScript glue code
     const script = document.createElement('script');
     script.src = searchJsUrl;
-    script.onload = () => {
-        console.log('[PAGE] search.js loaded');
-    };
+    script.onload = () => console.log('[PAGE] search.js loaded');
     script.onerror = (error) => {
         console.error('[PAGE] Failed to load search.js:', error);
         window.wasmError = 'Failed to load WebAssembly module';
@@ -269,7 +355,13 @@ window.addEventListener('runSearch', async (event) => {
         wasmInitialized: window.wasmInitialized,
         moduleExists: !!window.Module,
         heapExists: isMemoryInitialized(),
-        searchFunctionExists: !!window.searchFunction
+        searchFunctionExists: !!window.searchFunction,
+        memorySize: window.wasmMemory.buffer.byteLength,
+        heapViews: {
+            HEAP8: !!window.Module.HEAP8,
+            HEAP16: !!window.Module.HEAP16,
+            HEAP32: !!window.Module.HEAP32
+        }
     });
     
     if (!window.wasmInitialized) {
@@ -287,13 +379,35 @@ window.addEventListener('runSearch', async (event) => {
         }
         
         const text = document.body.innerText;
-        console.log('[PAGE] Running search on text length:', text.length);
         
-        // Ensure we have enough memory for the search
-        const estimatedMemoryNeeded = text.length * 4 + 1024; // rough estimate
-        if (!await growMemoryIfNeeded(estimatedMemoryNeeded)) {
+        // Validate input parameters
+        if (!text || !word1 || !word2 || typeof gap !== 'number' || gap < 0) {
+            throw new Error('Invalid search parameters');
+        }
+        
+        // Find the actual positions of the words first
+        const word1Pos = text.indexOf(word1);
+        const word2Pos = text.indexOf(word2);
+        
+        console.log('[PAGE] Running search:', {
+            textLength: text.length,
+            word1,
+            word2,
+            gap,
+            word1Position: word1Pos,
+            word2Position: word2Pos,
+            actualGap: word2Pos - (word1Pos + word1.length),
+            textPreview: text.substring(0, 100) + '...'
+        });
+        
+        // Ensure memory has enough space
+        const requiredBytes = text.length * 4 + 1024; // Extra space for results
+        if (!await growMemoryIfNeeded(requiredBytes)) {
             throw new Error('Failed to allocate required memory');
         }
+        
+        // Update memory views before the search
+        window.Module.updateMemoryViews();
         
         // Call the search function
         const resultPtr = window.searchFunction(
@@ -303,6 +417,21 @@ window.addEventListener('runSearch', async (event) => {
             gap
         );
         
+        // Update memory views after the search
+        window.Module.updateMemoryViews();
+        
+        console.log('[PAGE] Search function returned:', {
+            resultPtr,
+            resultPtrHex: '0x' + resultPtr.toString(16),
+            offset: resultPtr >> 2,
+            alignmentCheck: resultPtr % 4 === 0 ? 'aligned' : 'misaligned',
+            memoryState: {
+                buffer: !!window.wasmMemory.buffer,
+                byteLength: window.wasmMemory.buffer.byteLength,
+                HEAP32Length: window.Module.HEAP32.length
+            }
+        });
+        
         if (!resultPtr) {
             console.log('[PAGE] No matches found (null pointer returned)');
             window.dispatchEvent(new CustomEvent('searchComplete', { 
@@ -311,48 +440,118 @@ window.addEventListener('runSearch', async (event) => {
             return;
         }
         
+        // Verify pointer is within bounds
+        const ptrOffset = resultPtr >> 2;
+        if (ptrOffset < 0 || ptrOffset >= window.Module.HEAP32.length) {
+            throw new Error(`Invalid pointer: ${resultPtr} (offset ${ptrOffset} out of bounds)`);
+        }
+        
+        // Read raw memory values for debugging
+        const rawMemory = new Int32Array(window.wasmMemory.buffer);
+        console.log('[PAGE] Raw memory at result pointer:', {
+            directAccess: Array.from(rawMemory.slice(ptrOffset, ptrOffset + 3)),
+            heapAccess: Array.from(window.Module.HEAP32.slice(ptrOffset, ptrOffset + 3))
+        });
+        
         // Access the results array through HEAP32
         const matches = [];
-        let offset = resultPtr >> 2; // Convert byte offset to 32-bit integer offset
+        let offset = ptrOffset;
+        const MAX_MATCHES = 100; // Match the C++ limit
+        let matchCount = 0;
         
-        // Add bounds checking
-        const maxOffset = Module.HEAP32.length;
-        while (offset < maxOffset) {
-            const start = Module.HEAP32[offset];
+        while (offset < window.Module.HEAP32.length && matchCount < MAX_MATCHES) {
+            const start = window.Module.HEAP32[offset];
             if (start === -1) break;  // End marker
             
             // Ensure we can read the next two values
-            if (offset + 2 >= maxOffset) {
+            if (offset + 2 >= window.Module.HEAP32.length) {
                 console.error('[PAGE] Unexpected end of memory buffer');
                 break;
             }
             
-            const length = Module.HEAP32[offset + 1];
-            const wordCount = Module.HEAP32[offset + 2];
+            const length = window.Module.HEAP32[offset + 1];
+            const wordCount = window.Module.HEAP32[offset + 2];
             
-            if (start < 0 || length < 0 || wordCount < 0 || 
+            console.log('[PAGE] Processing match data:', {
+                offset,
+                start,
+                length,
+                wordCount,
+                nextThreeValues: Array.from(window.Module.HEAP32.slice(offset, offset + 3)),
+                rawValues: Array.from(rawMemory.slice(offset, offset + 3))
+            });
+            
+            // Basic sanity checks
+            if (start < 0 || length <= 0 || wordCount < 0 || 
+                start >= text.length || 
+                length > text.length || 
                 start + length > text.length) {
-                console.error('[PAGE] Invalid match data:', { start, length, wordCount });
+                console.error('[PAGE] Invalid match data:', {
+                    start,
+                    length,
+                    wordCount,
+                    textLength: text.length
+                });
+                // Stop processing on invalid data
+                matches.length = 0; // Clear any matches we might have collected
                 break;
             }
             
             // Extract the matched text
             const matchText = text.substring(start, start + length);
             
+            // Verify match contains both words
+            const hasWord1 = matchText.includes(word1);
+            const hasWord2 = matchText.includes(word2);
+            
+            if (!hasWord1 || !hasWord2) {
+                console.error('[PAGE] Match missing search words:', {
+                    matchText,
+                    hasWord1,
+                    hasWord2,
+                    start,
+                    length,
+                    word1,
+                    word2
+                });
+                // Skip this match but continue processing
+                offset += 3;
+                continue;
+            }
+            
+            // Calculate actual gap between words in this match
+            const word1PosInMatch = matchText.indexOf(word1);
+            const word2PosInMatch = matchText.indexOf(word2);
+            const actualGap = word2PosInMatch - (word1PosInMatch + word1.length);
+            
             matches.push({
                 text: matchText,
                 start: start,
                 length: length,
-                wordCount: wordCount
+                wordCount: wordCount,
+                word1Position: word1PosInMatch,
+                word2Position: word2PosInMatch,
+                actualGap
             });
             
-            offset += 3;  // Move to next match entry (3 integers per entry)
+            matchCount++;
+            offset += 3;
         }
         
-        console.log('[PAGE] Search completed, matches:', matches);
+        console.log('[PAGE] Search complete:', {
+            matchCount: matches.length,
+            matches: matches.map(m => ({
+                text: m.text.substring(0, 50) + '...',
+                start: m.start,
+                length: m.length,
+                wordCount: m.wordCount
+            }))
+        });
+        
         window.dispatchEvent(new CustomEvent('searchComplete', { 
-            detail: { count: matches.length, matches: matches }
+            detail: { count: matches.length, matches }
         }));
+        
     } catch (error) {
         console.error('[PAGE] Search error:', error);
         window.dispatchEvent(new CustomEvent('searchError', { 
