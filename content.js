@@ -162,7 +162,9 @@ function highlightMatches(matches) {
         matches.map(m => ({
             start: m.start,
             length: m.length,
-            text: m.text
+            text: m.text,
+            word1: m.word1,
+            word2: m.word2
         }))
     );
     
@@ -173,56 +175,91 @@ function highlightMatches(matches) {
     
     // Process each match
     for (const match of matches) {
-        // Hardcoded search for "This domain is" for reliability
-        const searchText = "This domain is";
-        
-        // Find the text in the document
-        const result = findTextInDocument(searchText);
-        
-        if (!result) {
-            console.error('[CONTENT] Could not find text:', searchText);
+        if (!match.word1 || !match.word2) {
+            console.error('[CONTENT] Match missing search words');
             continue;
         }
         
-        console.log('[CONTENT] Found text match:', {
-            text: searchText,
-            nodeText: result.text,
-            index: result.index
+        // Get the actual text from the document at this position
+        const searchRegex = new RegExp(`${match.word1}.*?${match.word2}`, 'i');
+        const fullText = getDocumentText();
+        const context = fullText.substring(
+            Math.max(0, match.start - 10),
+            Math.min(fullText.length, match.start + match.length + 10)
+        );
+        
+        console.log('[CONTENT] Match context:', {
+            context,
+            searchRegex: searchRegex.toString()
         });
         
-        try {
-            const node = result.node;
-            const parent = node.parentNode;
-            const index = result.index;
+        // Find the text in the document
+        const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: function(node) {
+                    // Skip script and style contents
+                    const parent = node.parentNode;
+                    if (!parent) return NodeFilter.FILTER_REJECT;
+                    
+                    if (parent.tagName === 'SCRIPT' || 
+                        parent.tagName === 'STYLE') {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    // Skip existing highlights
+                    if (parent.classList?.contains('wasm-search-highlight')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            },
+            false
+        );
+        
+        let foundNode = false;
+        let node;
+        while (node = walker.nextNode()) {
+            const nodeText = node.textContent;
+            const matches = nodeText.match(searchRegex);
             
-            // Skip if already highlighted
-            if (parent.classList && parent.classList.contains('wasm-search-highlight')) {
-                continue;
+            if (matches && matches.length > 0) {
+                const matchedText = matches[0];
+                const parent = node.parentNode;
+                const index = nodeText.indexOf(matchedText);
+                
+                console.log('[CONTENT] Found match in node:', {
+                    matchedText,
+                    nodeText,
+                    index
+                });
+                
+                // Create text segments
+                const beforeText = nodeText.substring(0, index);
+                const afterText = nodeText.substring(index + matchedText.length);
+                
+                // Create the DOM nodes
+                const beforeNode = document.createTextNode(beforeText);
+                const highlight = document.createElement('span');
+                highlight.className = 'wasm-search-highlight';
+                highlight.textContent = matchedText;
+                const afterNode = document.createTextNode(afterText);
+                
+                // Replace the original node
+                parent.insertBefore(beforeNode, node);
+                parent.insertBefore(highlight, node);
+                parent.insertBefore(afterNode, node);
+                parent.removeChild(node);
+                
+                console.log('[CONTENT] Created highlight for:', matchedText);
+                highlightCount++;
+                foundNode = true;
+                break;
             }
-            
-            // Create text segments
-            const beforeText = node.textContent.substring(0, index);
-            const matchText = node.textContent.substring(index, index + searchText.length);
-            const afterText = node.textContent.substring(index + searchText.length);
-            
-            // Create the DOM nodes
-            const beforeNode = document.createTextNode(beforeText);
-            const highlight = document.createElement('span');
-            highlight.className = 'wasm-search-highlight';
-            highlight.textContent = matchText;
-            const afterNode = document.createTextNode(afterText);
-            
-            // Replace the original node
-            parent.insertBefore(beforeNode, node);
-            parent.insertBefore(highlight, node);
-            parent.insertBefore(afterNode, node);
-            parent.removeChild(node);
-            
-            console.log('[CONTENT] Created highlight for:', matchText);
-            highlightCount++;
-            
-        } catch (error) {
-            console.error('[CONTENT] Error creating highlight:', error);
+        }
+        
+        if (!foundNode) {
+            console.error('[CONTENT] Could not find match text in DOM');
         }
     }
     
