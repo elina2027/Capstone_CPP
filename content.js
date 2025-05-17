@@ -265,8 +265,24 @@ window.addEventListener('searchComplete', (event) => {
         // Add new highlights
         highlightMatches(matchesWithWords);
         updateBanner(`Found ${count} match${count > 1 ? 'es' : ''}`);
+        
+        // Send match count back to popup
+        chrome.runtime.sendMessage({
+            type: 'MATCH_COUNT',
+            count: count,
+            pageCount: count,
+            wordDistances: matches.map(m => m.wordCount || 0)
+        });
     } else {
         updateBanner('No matches found');
+        
+        // Send zero count back to popup
+        chrome.runtime.sendMessage({
+            type: 'MATCH_COUNT',
+            count: 0,
+            pageCount: 0,
+            text: 'No matches found'
+        });
     }
 });
 
