@@ -127,6 +127,9 @@ function updateNavigation() {
             `${currentMatchIndex + 1} of ${totalMatches}`;
         nav.querySelector('.prev').disabled = currentMatchIndex <= 0;
         nav.querySelector('.next').disabled = currentMatchIndex >= totalMatches - 1;
+        
+        // Update banner to also show match position
+        updateBanner(`Found ${totalMatches} matches - Currently on match ${currentMatchIndex + 1}`);
     } else {
         nav.style.display = 'none';
     }
@@ -151,6 +154,18 @@ function scrollToMatch(index) {
         
         currentMatchIndex = index;
         updateNavigation();
+        
+        // Send navigation update to the popup
+        try {
+            chrome.runtime.sendMessage({
+                type: 'MATCH_NAVIGATION',
+                current: index,
+                total: highlights.length
+            });
+            console.log('[CONTENT] Sent match navigation update to popup:', { current: index, total: highlights.length });
+        } catch (error) {
+            console.error('[CONTENT] Failed to send navigation update to popup:', error);
+        }
     }
 }
 

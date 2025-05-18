@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const searchBtn = document.getElementById('searchBtn');
   const cleanBtn = document.getElementById('cleanBtn');
   const matchCountDiv = document.getElementById('matchCount');
+  const currentMatchDiv = document.getElementById('currentMatch');
   const gapBtns = document.querySelectorAll('.gap-btn');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
@@ -93,6 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update status to show searching state while maintaining total matches format
     matchCountDiv.className = 'results searching';
     matchCountDiv.textContent = 'Total matches: 0';
+    currentMatchDiv.textContent = '';
     console.log('[POPUP] Updated status to searching state');
     
     // Disable navigation buttons during search
@@ -129,6 +131,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Reset results display
     matchCountDiv.className = 'results';
     matchCountDiv.textContent = 'Total matches: 0';
+    currentMatchDiv.textContent = '';
     
     // Disable navigation buttons
     updateNavigationButtons(0, -1);
@@ -161,6 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
   function showError(message) {
     matchCountDiv.className = 'results error';
     matchCountDiv.textContent = 'Error: ' + message;
+    currentMatchDiv.textContent = '';
     updateNavigationButtons(0, -1);
   }
   
@@ -176,9 +180,13 @@ document.addEventListener('DOMContentLoaded', function() {
     if (total > 0 && current >= 0) {
       prevBtn.innerHTML = '&uarr;';
       nextBtn.innerHTML = '&darr;';
+      
+      // Update the match position counter
+      currentMatchDiv.textContent = `Match ${current + 1} of ${total}`;
     } else {
       prevBtn.innerHTML = '&uarr;';
       nextBtn.innerHTML = '&darr;';
+      currentMatchDiv.textContent = '';
     }
     
     console.log('[POPUP] Updated navigation buttons:', {
