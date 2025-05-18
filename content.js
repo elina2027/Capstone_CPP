@@ -24,25 +24,15 @@ function updateBanner(text, isError = false) {
 const style = document.createElement('style');
 style.textContent = `
     .wasm-search-highlight {
-        background-color: #ffd54f;
-        border-radius: 3px;
-        padding: 2px 0;
-        margin: 0 -2px;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-        transition: all 0.2s ease-in-out;
-        cursor: pointer;
-        position: relative;
-        display: inline-block;
+        background-color: #ffeb3b;
     }
     
     .wasm-search-highlight:hover {
-        background-color: #ffb300;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        background-color: #fdd835;
     }
     
     .wasm-search-highlight.active {
-        background-color: #ff8f00;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        background-color: #fbc02d;
     }
     
     @keyframes highlight-pulse {
