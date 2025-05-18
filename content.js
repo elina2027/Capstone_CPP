@@ -181,8 +181,10 @@ nav.querySelector('.next').addEventListener('click', () => {
 let isWasmInitialized = false;
 let initializationInProgress = false;
 
-// Track sent messages to prevent echo
+// Track processing state
 const sentMessages = new Set();
+const processedResults = new Set(); // Add tracking for processed search results
+let lastSearchTime = 0; // Track last search time
 
 // Message types
 const MessageTypes = {
@@ -207,9 +209,22 @@ function sendToPage(type, detail) {
     }, 5000);
 }
 
+// Force quit any existing search operation and clear highlights
+function forceCleanState() {
+    console.log('[CONTENT] Forcing clean state');
+    removeHighlights();
+    window.inSearchProcess = false;
+}
+
 // Message handler for all incoming messages
 function handleMessage(type, detail, messageId) {
     console.log('[CONTENT] Received message:', { type, detail, messageId });
+    
+    // If we're already in a search process, skip new search requests
+    if (window.inSearchProcess && type === MessageTypes.SEARCH_COMPLETE) {
+        console.log('[CONTENT] Skipping duplicate search - already processing');
+        return;
+    }
     
     switch (type) {
         case MessageTypes.INITIALIZED:
@@ -228,7 +243,57 @@ function handleMessage(type, detail, messageId) {
             break;
             
         case MessageTypes.SEARCH_COMPLETE:
-            handleSearchComplete(detail);
+            // Set the search process flag
+            window.inSearchProcess = true;
+            
+            try {
+                if (!detail || !Array.isArray(detail.matches)) {
+                    throw new Error('Invalid search results');
+                }
+
+                const { matches } = detail;
+                console.log('[CONTENT] Search completed:', { matchCount: matches.length });
+                
+                // Remove existing highlights first
+                removeHighlights();
+                
+                if (matches.length > 0) {
+                    highlightMatches(matches);
+                    updateBanner(`Found ${matches.length} match${matches.length > 1 ? 'es' : ''}`);
+                    
+                    // Send match count to background script to update popup
+                    try {
+                        chrome.runtime.sendMessage({
+                            type: 'MATCH_COUNT',
+                            count: matches.length
+                        });
+                        console.log('[CONTENT] Sent match count to background:', matches.length);
+                    } catch (error) {
+                        console.error('[CONTENT] Failed to send match count to background:', error);
+                    }
+                } else {
+                    updateBanner('No matches found');
+                    
+                    // Send zero match count to background script
+                    try {
+                        chrome.runtime.sendMessage({
+                            type: 'MATCH_COUNT',
+                            count: 0
+                        });
+                        console.log('[CONTENT] Sent zero match count to background');
+                    } catch (error) {
+                        console.error('[CONTENT] Failed to send match count to background:', error);
+                    }
+                }
+            } catch (error) {
+                console.error('[CONTENT] Error processing search results:', error);
+                updateBanner('Error processing search results', true);
+            } finally {
+                // Reset the search process flag
+                setTimeout(() => {
+                    window.inSearchProcess = false;
+                }, 1000);  // Wait 1 second before allowing new searches
+            }
             break;
             
         case MessageTypes.SEARCH_ERROR:
@@ -264,6 +329,7 @@ window.addEventListener('message', event => {
 
     // Ignore messages we sent
     if (messageId && sentMessages.has(messageId)) {
+        console.log('[CONTENT] Ignoring our own message:', { type, messageId });
         return;
     }
     
@@ -328,46 +394,8 @@ function initializeWebAssembly() {
         initializationInProgress = false;
     };
     document.head.appendChild(pageScript);
-
-    // Update message listener to handle message IDs
-    window.addEventListener('message', function(event) {
-        if (event.source !== window) return;
-        
-        const { type, detail, messageId } = event.data;
-        if (!type) return;
-
-        // Ignore messages we sent
-        if (messageId && sentMessages.has(messageId)) {
-            return;
-        }
-
-        console.log('[CONTENT] Received message from page:', { type, detail });
-        
-        switch (type) {
-            case MessageTypes.INITIALIZED:
-                isWasmInitialized = true;
-                initializationInProgress = false;
-                console.log('[CONTENT] WebAssembly initialized successfully');
-                updateBanner('Ready for search!');
-                break;
-                
-            case MessageTypes.ERROR:
-                isWasmInitialized = false;
-                initializationInProgress = false;
-                const error = detail || 'Unknown error';
-                console.error('[CONTENT] WebAssembly initialization failed:', error);
-                updateBanner('Error: ' + error, true);
-                break;
-                
-            case MessageTypes.SEARCH_COMPLETE:
-                handleSearchComplete(detail);
-                break;
-                
-            case MessageTypes.SEARCH_ERROR:
-                handleSearchError(detail);
-                break;
-        }
-    });
+    
+    // No need for duplicate event listener - we're using the global one
 }
 
 // Initialize WebAssembly
@@ -449,50 +477,6 @@ function initiateSearch(word1, word2, gap) {
     } catch (error) {
         console.error('[CONTENT] Search error:', error);
         updateBanner('Error: ' + error.message, true);
-    }
-}
-
-// Handle search completion
-function handleSearchComplete(detail) {
-    try {
-        if (!detail || !Array.isArray(detail.matches)) {
-            throw new Error('Invalid search results');
-        }
-
-        const { matches } = detail;
-        console.log('[CONTENT] Search completed:', { matchCount: matches.length });
-        
-        if (matches.length > 0) {
-            highlightMatches(matches);
-            updateBanner(`Found ${matches.length} match${matches.length > 1 ? 'es' : ''}`);
-            
-            // Send match count to background script to update popup
-            try {
-                chrome.runtime.sendMessage({
-                    type: 'MATCH_COUNT',
-                    count: matches.length
-                });
-                console.log('[CONTENT] Sent match count to background:', matches.length);
-            } catch (error) {
-                console.error('[CONTENT] Failed to send match count to background:', error);
-            }
-        } else {
-            updateBanner('No matches found');
-            
-            // Send zero match count to background script
-            try {
-                chrome.runtime.sendMessage({
-                    type: 'MATCH_COUNT',
-                    count: 0
-                });
-                console.log('[CONTENT] Sent zero match count to background');
-            } catch (error) {
-                console.error('[CONTENT] Failed to send match count to background:', error);
-            }
-        }
-    } catch (error) {
-        console.error('[CONTENT] Error processing search results:', error);
-        updateBanner('Error processing search results', true);
     }
 }
 
@@ -653,7 +637,7 @@ function getDocumentText() {
     return normalizedText;
 }
 
-// Update highlight matches function
+// Update highlight matches function with a completely different approach
 function highlightMatches(matches) {
     console.log('[CONTENT] Starting highlight process for matches:', 
         matches.map(m => ({
@@ -666,9 +650,6 @@ function highlightMatches(matches) {
         }))
     );
     
-    // Remove existing highlights first
-    removeHighlights();
-    
     // Reset navigation
     currentMatchIndex = -1;
     totalMatches = 0;
@@ -678,15 +659,26 @@ function highlightMatches(matches) {
         return;
     }
     
-    // Use a direct approach that doesn't rely on text positions
-    // This is more resilient to DOM changes
+    // Create a single document fragment for all highlights
     const highlightedElements = [];
     
-    // Process each match individually using Range API 
+    // Create a set to store already highlighted text ranges to prevent duplication
+    const highlightedTexts = new Set();
+    
+    // Process each match
     for (const match of matches) {
         // Skip invalid matches
         if (!match.text) {
             console.log('[CONTENT] Skipping match with no text:', match);
+            continue;
+        }
+        
+        // Create a unique ID for this match
+        const matchId = `${match.start}-${match.length}`;
+        
+        // Skip if we've already highlighted this text
+        if (highlightedTexts.has(matchId)) {
+            console.log('[CONTENT] Skipping duplicate match:', matchId);
             continue;
         }
         
@@ -697,65 +689,63 @@ function highlightMatches(matches) {
             wordCount: match.wordCount
         });
         
-        try {
-            // Create a new highlight element
-            const highlight = document.createElement('span');
-            highlight.className = 'wasm-search-highlight new';
-            highlight.textContent = match.text;
-            
-            if (match.word1) highlight.setAttribute('data-word1', match.word1);
-            if (match.word2) highlight.setAttribute('data-word2', match.word2);
-            
-            // Find this text in the document
-            const matchText = match.text;
-            const textNodes = [];
-            
-            // Get all text nodes
-            const walker = document.createTreeWalker(
-                document.body,
-                NodeFilter.SHOW_TEXT,
-                {
-                    acceptNode: function(node) {
-                        // Skip scripts, styles, and hidden elements
-                        const parent = node.parentNode;
-                        if (!parent) return NodeFilter.FILTER_REJECT;
-                        
-                        if (parent.tagName === 'SCRIPT' || 
-                            parent.tagName === 'STYLE' ||
-                            parent.offsetParent === null) {
-                            return NodeFilter.FILTER_REJECT;
-                        }
-                        return NodeFilter.FILTER_ACCEPT;
-                    }
-                }
-            );
-            
-            let textNode;
-            while (textNode = walker.nextNode()) {
-                // Skip empty nodes
-                if (!textNode.textContent.trim()) continue;
-                
-                // Skip nodes that are already highlighted
-                if (textNode.parentNode && 
-                    textNode.parentNode.classList && 
-                    textNode.parentNode.classList.contains('wasm-search-highlight')) {
-                    continue;
-                }
-                
-                textNodes.push(textNode);
-            }
-            
-            console.log(`[CONTENT] Found ${textNodes.length} candidate text nodes`);
-            
-            // Find the text in one of our text nodes
-            let found = false;
-            for (const node of textNodes) {
-                const nodeText = node.textContent;
-                const pos = nodeText.indexOf(matchText);
-                
-                if (pos >= 0) {
-                    console.log(`[CONTENT] Found match text "${matchText}" in node: "${nodeText.substring(0, 30)}..."`);
+        // Get all text nodes in a single pass
+        const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: function(node) {
+                    // Skip scripts, styles, and hidden elements
+                    const parent = node.parentNode;
+                    if (!parent) return NodeFilter.FILTER_REJECT;
                     
+                    if (parent.tagName === 'SCRIPT' || 
+                        parent.tagName === 'STYLE' ||
+                        parent.offsetParent === null) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    
+                    // Skip nodes that are already highlighted
+                    if (parent.classList && 
+                        parent.classList.contains('wasm-search-highlight')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            }
+        );
+        
+        // Find the text in any node
+        const matchText = match.text;
+        let found = false;
+        
+        // Collect all text nodes and search them
+        const textNodes = [];
+        let node;
+        while (node = walker.nextNode()) {
+            if (node.textContent.includes(matchText)) {
+                textNodes.push(node);
+            }
+        }
+        
+        // Try to highlight the match in the first matching node
+        if (textNodes.length > 0) {
+            const node = textNodes[0];
+            const nodeText = node.textContent;
+            const pos = nodeText.indexOf(matchText);
+            
+            if (pos >= 0) {
+                try {
+                    // Create the highlight element
+                    const highlight = document.createElement('span');
+                    highlight.className = 'wasm-search-highlight new';
+                    
+                    // Add data attributes
+                    if (match.word1) highlight.setAttribute('data-word1', match.word1);
+                    if (match.word2) highlight.setAttribute('data-word2', match.word2);
+                    
+                    // Create a range for the match
                     const range = document.createRange();
                     range.setStart(node, pos);
                     range.setEnd(node, pos + matchText.length);
@@ -772,18 +762,21 @@ function highlightMatches(matches) {
                         scrollToMatch(index);
                     });
                     
+                    // Mark this match as highlighted
+                    highlightedTexts.add(matchId);
                     highlightedElements.push(highlight);
                     totalMatches++;
                     found = true;
-                    break;
+                    
+                    console.log('[CONTENT] Successfully highlighted match:', matchId);
+                } catch (error) {
+                    console.error('[CONTENT] Error creating highlight:', error);
                 }
             }
-            
-            if (!found) {
-                console.log(`[CONTENT] Could not find match text: "${matchText}" in document`);
-            }
-        } catch (error) {
-            console.error('[CONTENT] Error creating highlight:', error);
+        }
+        
+        if (!found) {
+            console.log('[CONTENT] Could not find node for match text:', matchText);
         }
     }
     
