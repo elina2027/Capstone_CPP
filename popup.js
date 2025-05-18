@@ -64,9 +64,7 @@ function runSearch(word1, word2, gap) {
   console.log('[PAGE] Running search with parameters:', { word1, word2, gap });
   window.postMessage({ 
     type: "RUN_SEARCH", 
-    word1, 
-    word2, 
-    gap 
+    detail: { word1, word2, gap }
   }, "*");
 }
 

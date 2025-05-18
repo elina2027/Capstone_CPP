@@ -20,9 +20,6 @@ function updateBanner(text, isError = false) {
     console.log('[CONTENT] Banner updated:', text, isError ? '(error)' : '');
 }
 
-// Initialize WebAssembly
-console.log('[CONTENT] Starting initialization');
-
 // Inject highlight styles
 const style = document.createElement('style');
 style.textContent = `
@@ -180,134 +177,312 @@ nav.querySelector('.next').addEventListener('click', () => {
     }
 });
 
-// Get extension URLs
-const searchJsUrl = chrome.runtime.getURL('search.js');
-const wasmUrl = chrome.runtime.getURL('search.wasm');
-const pageJsUrl = chrome.runtime.getURL('page.js');
-console.log('[CONTENT] URLs:', { searchJsUrl, wasmUrl, pageJsUrl });
+// Track initialization state
+let isWasmInitialized = false;
+let initializationInProgress = false;
 
-// Load page.js first
-const pageScript = document.createElement('script');
-pageScript.src = pageJsUrl;
-pageScript.onload = () => {
-    console.log('[CONTENT] page.js loaded');
-    // Signal that initialization can begin
-    window.dispatchEvent(new CustomEvent('wasmInit', {
-        detail: { searchJsUrl, wasmUrl }
-    }));
+// Track sent messages to prevent echo
+const sentMessages = new Set();
+
+// Message types
+const MessageTypes = {
+    INIT: 'WASM_INIT',
+    INITIALIZED: 'WASM_INITIALIZED',
+    ERROR: 'WASM_ERROR',
+    RUN_SEARCH: 'RUN_SEARCH',
+    SEARCH_COMPLETE: 'SEARCH_COMPLETE',
+    SEARCH_ERROR: 'SEARCH_ERROR'
 };
-pageScript.onerror = (error) => {
-    console.error('[CONTENT] Failed to load page.js:', error);
-    updateBanner('Error: Failed to load page script!', true);
-};
-document.head.appendChild(pageScript);
 
-// Listen for WebAssembly initialization events
-window.addEventListener('wasmReady', () => {
-    console.log('[CONTENT] WebAssembly initialized successfully');
-    updateBanner('Ready for search!');
-});
+// Function to send messages to page script
+function sendToPage(type, detail) {
+    console.log('[CONTENT] Sending message to page:', { type, detail });
+    const messageId = Date.now() + Math.random();
+    sentMessages.add(messageId);
+    window.postMessage({ type, detail, messageId }, '*');
+    
+    // Clean up old message IDs after 5 seconds
+    setTimeout(() => {
+        sentMessages.delete(messageId);
+    }, 5000);
+}
 
-window.addEventListener('wasmError', () => {
-    const error = document.wrappedJSObject?.wasmError || 'Unknown error';
-    console.error('[CONTENT] WebAssembly initialization failed:', error);
-    updateBanner('Error: ' + error, true);
-});
+// Message handler for all incoming messages
+function handleMessage(type, detail, messageId) {
+    console.log('[CONTENT] Received message:', { type, detail, messageId });
+    
+    switch (type) {
+        case MessageTypes.INITIALIZED:
+            isWasmInitialized = true;
+            initializationInProgress = false;
+            console.log('[CONTENT] WebAssembly initialized successfully');
+            updateBanner('Ready for search!');
+            break;
+            
+        case MessageTypes.ERROR:
+            isWasmInitialized = false;
+            initializationInProgress = false;
+            const error = detail || 'Unknown error';
+            console.error('[CONTENT] WebAssembly initialization failed:', error);
+            updateBanner('Error: ' + error, true);
+            break;
+            
+        case MessageTypes.SEARCH_COMPLETE:
+            handleSearchComplete(detail);
+            break;
+            
+        case MessageTypes.SEARCH_ERROR:
+            handleSearchError(detail);
+            break;
+            
+        case MessageTypes.RUN_SEARCH:
+            try {
+                // Validate search parameters
+                if (!detail || typeof detail !== 'object') {
+                    throw new Error('Invalid search request: missing parameters');
+                }
 
-// Listen for search completion
-window.addEventListener('searchComplete', (event) => {
-    const { count, matches } = event.detail;
-    
-    // Get document text first to establish position mapping
-    const documentText = getDocumentText();
-    
-    console.log('[CONTENT] Search completed:', { 
-        count, 
-        documentTextLength: documentText.length,
-        textPositionMap: window.textPositionMap,
-        matches: matches.map(m => ({
-            text: m.text,
-            start: m.start,
-            length: m.length,
-            wordCount: m.wordCount,
-            textContext: documentText.substring(
-                Math.max(0, m.start - 20),
-                Math.min(documentText.length, m.start + m.length + 20)
-            )
-        }))
-    });
-    
-    // Remove any existing highlights
-    removeHighlights();
-    
-    if (count > 0) {
-        // Get search parameters from the most recent search
-        const searchParams = window.lastSearchParams || {};
-        
-        // Add search words to matches
-        const matchesWithWords = matches.map(match => ({
-            ...match,
-            word1: searchParams.word1,
-            word2: searchParams.word2
-        }));
-        
-        // Add new highlights
-        highlightMatches(matchesWithWords);
-        updateBanner(`Found ${count} match${count > 1 ? 'es' : ''}`);
-    } else {
-        updateBanner('No matches found');
+                const { word1, word2, gap } = detail;
+                initiateSearch(word1, word2, gap);
+            } catch (error) {
+                console.error('[CONTENT] Search error:', error);
+                updateBanner('Error: ' + error.message, true);
+            }
+            break;
+            
+        default:
+            console.log('[CONTENT] Unhandled message type:', type);
     }
-});
+}
 
-// Listen for search messages
-window.addEventListener('message', event => {
-    if (event.source !== window) return;
-    if (event.data.type !== 'RUN_SEARCH') return;
-    
-    const { word1, word2, gap } = event.data;
-    console.log('[CONTENT] Search requested:', { word1, word2, gap });
-    
-    // Store search parameters for later use
-    window.lastSearchParams = { word1, word2, gap };
-    
-    // Dispatch search request to page context
-    window.dispatchEvent(new CustomEvent('runSearch', {
-        detail: { word1, word2, gap }
-    }));
-});
-
-// Listen for clean request
+// Global message listener
 window.addEventListener('message', event => {
     if (event.source !== window) return;
     
-    if (event.data.type === 'RUN_SEARCH') {
-        const { word1, word2, gap } = event.data;
-        console.log('[CONTENT] Search requested:', { word1, word2, gap });
-        
-        // Dispatch search request to page context
-        window.dispatchEvent(new CustomEvent('runSearch', {
-            detail: { word1, word2, gap }
-        }));
-    } else if (event.data.type === 'CLEAN_SEARCH') {
-        console.log('[CONTENT] Cleaning search...');
-        removeHighlights();
-        updateBanner('Ready for search!');
-        
-        // Reset navigation
-        currentMatchIndex = -1;
-        totalMatches = 0;
-        updateNavigation();
+    const { type, detail, messageId } = event.data;
+    if (!type) return;
+
+    // Ignore messages we sent
+    if (messageId && sentMessages.has(messageId)) {
+        return;
     }
+    
+    handleMessage(type, detail, messageId);
 });
 
-window.addEventListener('searchError', (event) => {
-    console.error('[CONTENT] Search error:', event.detail);
-    updateBanner('Search error: ' + event.detail, true);
-    chrome.runtime.sendMessage({
-        type: 'MATCH_COUNT',
-        count: 0
+// Function to initialize WebAssembly
+function initializeWebAssembly() {
+    if (initializationInProgress) {
+        console.log('[CONTENT] WebAssembly initialization already in progress');
+        return;
+    }
+    
+    initializationInProgress = true;
+    updateBanner('Initializing WebAssembly...');
+
+    // Get extension URLs
+    const searchJsUrl = chrome.runtime.getURL('search.js');
+    const wasmUrl = chrome.runtime.getURL('search.wasm');
+    const pageJsUrl = chrome.runtime.getURL('page.js');
+
+    // Verify URLs are valid
+    if (!searchJsUrl || !wasmUrl || !pageJsUrl) {
+        const error = 'Failed to get valid URLs';
+        console.error('[CONTENT] ' + error + ':', { searchJsUrl, wasmUrl, pageJsUrl });
+        updateBanner('Error: ' + error, true);
+        initializationInProgress = false;
+        return;
+    }
+
+    console.log('[CONTENT] Extension URLs generated:', { 
+        searchJs: searchJsUrl,
+        wasm: wasmUrl,
+        pageJs: pageJsUrl,
+        valid: {
+            searchJs: searchJsUrl.startsWith('chrome-extension://'),
+            wasm: wasmUrl.startsWith('chrome-extension://'),
+            pageJs: pageJsUrl.startsWith('chrome-extension://')
+        }
     });
-});
+
+    // Create configuration element
+    const configElement = document.createElement('div');
+    configElement.id = 'wasm-config';
+    configElement.style.display = 'none';
+    document.body.appendChild(configElement);
+
+    // Load page.js first
+    const pageScript = document.createElement('script');
+    pageScript.src = pageJsUrl;
+    pageScript.onload = () => {
+        console.log('[CONTENT] page.js loaded, setting configuration');
+        // Set configuration after page.js is loaded
+        configElement.setAttribute('data-config', JSON.stringify({
+            searchJsUrl,
+            wasmUrl
+        }));
+    };
+    pageScript.onerror = (error) => {
+        console.error('[CONTENT] Failed to load page.js:', error);
+        updateBanner('Error: Failed to load page script!', true);
+        initializationInProgress = false;
+    };
+    document.head.appendChild(pageScript);
+
+    // Update message listener to handle message IDs
+    window.addEventListener('message', function(event) {
+        if (event.source !== window) return;
+        
+        const { type, detail, messageId } = event.data;
+        if (!type) return;
+
+        // Ignore messages we sent
+        if (messageId && sentMessages.has(messageId)) {
+            return;
+        }
+
+        console.log('[CONTENT] Received message from page:', { type, detail });
+        
+        switch (type) {
+            case MessageTypes.INITIALIZED:
+                isWasmInitialized = true;
+                initializationInProgress = false;
+                console.log('[CONTENT] WebAssembly initialized successfully');
+                updateBanner('Ready for search!');
+                break;
+                
+            case MessageTypes.ERROR:
+                isWasmInitialized = false;
+                initializationInProgress = false;
+                const error = detail || 'Unknown error';
+                console.error('[CONTENT] WebAssembly initialization failed:', error);
+                updateBanner('Error: ' + error, true);
+                break;
+                
+            case MessageTypes.SEARCH_COMPLETE:
+                handleSearchComplete(detail);
+                break;
+                
+            case MessageTypes.SEARCH_ERROR:
+                handleSearchError(detail);
+                break;
+        }
+    });
+}
+
+// Initialize WebAssembly
+initializeWebAssembly();
+
+// Make search function available globally for debugging
+window.runSearch = function(word1, word2, gap) {
+    console.log('[CONTENT] Running search:', { word1, word2, gap });
+    
+    // Convert gap to number if it's a string
+    if (typeof gap === 'string') {
+        gap = parseInt(gap, 10);
+    }
+    
+    // Validate parameters
+    if (!word1 || typeof word1 !== 'string') {
+        console.error('[CONTENT] Invalid first word:', word1);
+        updateBanner('Error: Invalid first word', true);
+        return;
+    }
+    if (!word2 || typeof word2 !== 'string') {
+        console.error('[CONTENT] Invalid second word:', word2);
+        updateBanner('Error: Invalid second word', true);
+        return;
+    }
+    if (isNaN(gap) || gap < 0) {
+        console.error('[CONTENT] Invalid gap value:', gap);
+        updateBanner('Error: Invalid gap value', true);
+        return;
+    }
+    
+    // Send search request to page script
+    sendToPage(MessageTypes.RUN_SEARCH, {
+        word1: word1.trim(),
+        word2: word2.trim(),
+        gap: gap
+    });
+};
+
+// Function to initiate a search
+function initiateSearch(word1, word2, gap) {
+    try {
+        // Validate parameters
+        if (!word1 || typeof word1 !== 'string' || word1.trim().length === 0) {
+            throw new Error('Invalid first word');
+        }
+        if (!word2 || typeof word2 !== 'string' || word2.trim().length === 0) {
+            throw new Error('Invalid second word');
+        }
+        if (typeof gap !== 'number' || gap < 0) {
+            throw new Error('Invalid gap value');
+        }
+
+        console.log('[CONTENT] Search requested:', { 
+            word1, 
+            word2, 
+            gap,
+            valid: {
+                word1: typeof word1 === 'string' && word1.trim().length > 0,
+                word2: typeof word2 === 'string' && word2.trim().length > 0,
+                gap: typeof gap === 'number' && gap >= 0
+            }
+        });
+        
+        if (!isWasmInitialized) {
+            if (initializationInProgress) {
+                throw new Error('Please wait, WebAssembly is still initializing...');
+            } else {
+                throw new Error('WebAssembly not initialized');
+            }
+        }
+        
+        updateBanner('Searching...');
+        sendToPage(MessageTypes.RUN_SEARCH, { 
+            word1: word1.trim(), 
+            word2: word2.trim(), 
+            gap 
+        });
+    } catch (error) {
+        console.error('[CONTENT] Search error:', error);
+        updateBanner('Error: ' + error.message, true);
+    }
+}
+
+// Handle search completion
+function handleSearchComplete(detail) {
+    try {
+        if (!detail || !Array.isArray(detail.matches)) {
+            throw new Error('Invalid search results');
+        }
+
+        const { matches } = detail;
+        console.log('[CONTENT] Search completed:', { matchCount: matches.length });
+        
+        if (matches.length > 0) {
+            highlightMatches(matches);
+            updateBanner(`Found ${matches.length} match${matches.length > 1 ? 'es' : ''}`);
+        } else {
+            updateBanner('No matches found');
+        }
+    } catch (error) {
+        console.error('[CONTENT] Error processing search results:', error);
+        updateBanner('Error processing search results', true);
+    }
+}
+
+// Handle search errors
+function handleSearchError(error) {
+    const errorMessage = error instanceof Error ? error.message : 
+                        typeof error === 'string' ? error : 
+                        'Unknown search error';
+    
+    console.error('[CONTENT] Search error:', errorMessage);
+    updateBanner('Search error: ' + errorMessage, true);
+}
 
 // Function to remove existing highlights
 function removeHighlights() {

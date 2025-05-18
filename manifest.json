@@ -19,13 +19,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["debug.js", "config.js", "content.js"],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["search.wasm", "search.js", "page.js"],
+      "resources": ["search.wasm", "search.js", "page.js", "debug.js", "config.js"],
       "matches": ["<all_urls>"]
     }
   ]
