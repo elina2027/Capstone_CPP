@@ -1,0 +1,15 @@
+ICONS INSTRUCTIONS
+
+For your browser extension, you need to create two icon files:
+
+1. icon48.png - 48x48 pixels
+2. icon128.png - 128x128 pixels
+
+These should be placed in the root directory of your extension.
+
+Icon suggestions:
+- A magnifying glass icon would be appropriate for a search extension
+- Use a color scheme that matches your extension (the primary color in your CSS is #4285f4)
+- Make sure the icons are clear and recognizable at their respective sizes
+
+You can create these icons using image editing software or download suitable icons from icon libraries (ensuring you have proper permissions to use them). 

@@ -3,6 +3,10 @@
   "name": "Ctrl-F with Gap",
   "version": "1.0",
   "description": "Search for two words with a character gap",
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "permissions": [
     "scripting",
     "activeTab"
@@ -11,7 +15,11 @@
     "<all_urls>"
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
@@ -19,13 +27,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["debug.js", "config.js", "content.js"],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["search.wasm", "search.js", "page.js"],
+      "resources": ["search.wasm", "search.js", "page.js", "debug.js", "config.js"],
       "matches": ["<all_urls>"]
     }
   ]
