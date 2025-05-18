@@ -15,8 +15,8 @@ emcc \
     -I${EMSDK}/upstream/emscripten/cache/sysroot/include \
     -sIMPORTED_MEMORY \
     -sINITIAL_MEMORY=16777216 \
-    -sMAXIMUM_MEMORY=16777216 \
-    -sALLOW_MEMORY_GROWTH=0 \
+    -sMAXIMUM_MEMORY=67108864 \
+    -sALLOW_MEMORY_GROWTH=1 \
     -sEXPORTED_FUNCTIONS=_search,_malloc,_free,_debugMatch \
     -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,lengthBytesUTF8,HEAP32 \
     -sENVIRONMENT=web \

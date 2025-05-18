@@ -4,6 +4,7 @@
 #include <cctype>
 #include <algorithm>
 #include <unordered_set>
+#include <string_view>  // Using string_view for better memory efficiency
 
 // For IDE intellisense
 #ifndef __EMSCRIPTEN__
@@ -22,138 +23,11 @@ struct Match {
 namespace {
     // Convert string to lowercase for case-insensitive search
     std::string toLower(const std::string& str) {
-        std::string lower = str;
-        std::transform(lower.begin(), lower.end(), lower.begin(), 
+        std::string lower;
+        lower.reserve(str.length()); // Pre-allocate memory
+        std::transform(str.begin(), str.end(), std::back_inserter(lower),
                       [](unsigned char c) { return std::tolower(c); });
         return lower;
-    }
-    
-    // Compute the suffix length table for Boyer-Moore search
-    std::vector<int> computeSuffixLength(const std::string& pattern) {
-        int m = pattern.length();
-        std::vector<int> suffixLength(m, 0);
-        
-        // Initialize last position
-        suffixLength[m - 1] = m;
-        
-        // Start from the second last character
-        int g = m - 1;
-        int f = 0;
-        
-        for (int i = m - 2; i >= 0; i--) {
-            if (i > g && suffixLength[m - 1 - f + i] < i - g) {
-                suffixLength[i] = suffixLength[m - 1 - f + i];
-            } else {
-                if (i < g) {
-                    g = i;
-                }
-                f = i;
-                
-                while (g >= 0 && pattern[g] == pattern[m - 1 - f + g]) {
-                    g--;
-                }
-                
-                suffixLength[i] = f - g;
-            }
-        }
-        
-        return suffixLength;
-    }
-    
-    // Build a bad character table for Boyer-Moore search
-    std::vector<int> buildBadCharTable(const std::string& pattern) {
-        const int ALPHABET_SIZE = 256; // Full ASCII range
-        std::vector<int> badChar(ALPHABET_SIZE, -1);
-        
-        for (int i = 0; i < pattern.length(); i++) {
-            badChar[static_cast<unsigned char>(pattern[i])] = i;
-        }
-        
-        return badChar;
-    }
-    
-    // Build a good suffix table for Boyer-Moore search
-    std::vector<int> buildGoodSuffixTable(const std::string& pattern) {
-        int m = pattern.length();
-        std::vector<int> goodSuffix(m, 0);
-        std::vector<int> suffixLength = computeSuffixLength(pattern);
-        
-        // Initialize all values to length of pattern
-        for (int i = 0; i < m; i++) {
-            goodSuffix[i] = m;
-        }
-        
-        // Consider case 2: some substring of pattern matches suffix of another occurrence
-        for (int i = m - 1; i >= 0; i--) {
-            if (suffixLength[i] == i + 1) {
-                for (int j = 0; j < m - 1 - i; j++) {
-                    if (goodSuffix[j] == m) {
-                        goodSuffix[j] = m - 1 - i;
-                    }
-                }
-            }
-        }
-        
-        // Consider case 1: suffix of pattern appears elsewhere in pattern
-        for (int i = 0; i <= m - 2; i++) {
-            int suffixLen = suffixLength[i];
-            goodSuffix[m - 1 - suffixLen] = m - 1 - i;
-        }
-        
-        return goodSuffix;
-    }
-    
-    // Enhanced Boyer-Moore search algorithm with both bad character and good suffix rules
-    std::vector<size_t> boyerMooreSearch(const std::string& text, const std::string& pattern) {
-        std::vector<size_t> positions;
-        
-        // Check for edge cases
-        if (pattern.empty() || text.empty() || pattern.length() > text.length()) {
-            return positions;
-        }
-        
-        // Compute bad character and good suffix shift tables
-        auto badChar = buildBadCharTable(pattern);
-        auto goodSuffix = buildGoodSuffixTable(pattern);
-        
-        int m = pattern.length();
-        int n = text.length();
-        
-        // Create a cache for previously found positions to prevent duplicates
-        std::unordered_set<size_t> positionCache;
-        
-        int s = 0; // current shift of the pattern
-        while (s <= (n - m)) {
-            int j = m - 1;
-            
-            // Match pattern from right to left
-            while (j >= 0 && pattern[j] == text[s + j]) {
-                j--;
-            }
-            
-            if (j < 0) {
-                // Pattern match found
-                size_t pos = s;
-                
-                // Only add unique positions
-                if (positionCache.find(pos) == positionCache.end()) {
-                    positions.push_back(pos);
-                    positionCache.insert(pos);
-                }
-                
-                // Shift using good suffix rule for next search
-                s += goodSuffix[0];
-            } else {
-                // Compute shifts using both bad character and good suffix rules
-                int badCharShift = j - badChar[static_cast<unsigned char>(text[s + j])];
-                int goodSuffixShift = goodSuffix[j];
-                
-                // Take the maximum of the two shifts
-                s += std::max(1, std::max(badCharShift, goodSuffixShift));
-            }
-        }
-        
-        return positions;
     }
     
     // Helper function to check if a character is part of a word
@@ -162,9 +36,9 @@ namespace {
     }
     
     // Enhanced word boundary check with proper validation
-    bool isWordBoundary(const std::string& text, size_t pos, const std::string& word) {
+    bool isWordBoundary(const std::string& text, size_t pos, size_t wordLength) {
         // Safety bounds check
-        if (pos >= text.length() || pos + word.length() > text.length()) {
+        if (pos >= text.length() || pos + wordLength > text.length()) {
             return false;
         }
         
@@ -172,19 +46,75 @@ namespace {
         bool validStart = (pos == 0 || !isWordChar(text[pos - 1]));
         
         // Check end boundary
-        size_t endPos = pos + word.length();
+        size_t endPos = pos + wordLength;
         bool validEnd = (endPos >= text.length() || !isWordChar(text[endPos]));
         
         return validStart && validEnd;
     }
     
-    // Count characters between positions
-    int countCharsBetween(const std::string& text, size_t start, size_t end) {
-        if (start >= end || start >= text.length() || end > text.length()) {
-            return 0;
+    // Simple search for text in document - more reliable than Boyer-Moore for smaller patterns
+    std::vector<size_t> simpleSearch(const std::string& text, const std::string& pattern, bool caseInsensitive) {
+        std::vector<size_t> positions;
+        
+        // Handle empty inputs
+        if (pattern.empty() || text.empty() || pattern.length() > text.length()) {
+            return positions;
         }
         
-        return end - start;
+        const size_t patternLength = pattern.length();
+        const size_t textLength = text.length();
+        const size_t searchLimit = textLength - patternLength + 1;
+        
+        // Special case for single character patterns - much faster direct search
+        if (patternLength == 1) {
+            char searchChar = pattern[0];
+            if (caseInsensitive) {
+                searchChar = std::tolower(searchChar);
+                for (size_t i = 0; i < textLength; ++i) {
+                    if (std::tolower(text[i]) == searchChar) {
+                        positions.push_back(i);
+                    }
+                }
+            } else {
+                for (size_t i = 0; i < textLength; ++i) {
+                    if (text[i] == searchChar) {
+                        positions.push_back(i);
+                    }
+                }
+            }
+            return positions;
+        }
+        
+        // For case insensitive search
+        if (caseInsensitive) {
+            for (size_t i = 0; i < searchLimit; ++i) {
+                bool match = true;
+                for (size_t j = 0; j < patternLength; ++j) {
+                    if (std::tolower(text[i + j]) != std::tolower(pattern[j])) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    positions.push_back(i);
+                }
+            }
+        } else { // For case sensitive search
+            for (size_t i = 0; i < searchLimit; ++i) {
+                bool match = true;
+                for (size_t j = 0; j < patternLength; ++j) {
+                    if (text[i + j] != pattern[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    positions.push_back(i);
+                }
+            }
+        }
+        
+        return positions;
     }
     
     // Optimized search for both words with case sensitivity option
@@ -192,29 +122,30 @@ namespace {
         const std::string& text, 
         const std::string& word1, 
         const std::string& word2,
-        const std::string& textLower,
-        const std::string& word1Lower,
-        const std::string& word2Lower,
         int gap,
         bool caseInsensitive) 
     {
         std::vector<Match> matches;
         
-        // Search for word1 positions
-        std::vector<size_t> word1Positions;
+        // Validate inputs to prevent crashes
+        if (text.empty() || word1.empty() || word2.empty() || gap < 0) {
+            return matches;
+        }
         
-        // Choose the appropriate strings based on case sensitivity
-        const std::string& searchText = caseInsensitive ? textLower : text;
-        const std::string& searchWord1 = caseInsensitive ? word1Lower : word1;
-        const std::string& searchWord2 = caseInsensitive ? word2Lower : word2;
+        // Find all positions of word1
+        std::vector<size_t> word1Positions = simpleSearch(text, word1, caseInsensitive);
         
-        // Find all positions of word1 using Boyer-Moore
-        word1Positions = boyerMooreSearch(searchText, searchWord1);
+        // Safety check
+        if (word1Positions.empty()) {
+            return matches;
+        }
         
         // Filter for valid word boundaries
         std::vector<size_t> validWord1Positions;
+        validWord1Positions.reserve(word1Positions.size()); // Pre-allocate memory
+        
         for (size_t pos : word1Positions) {
-            if (isWordBoundary(text, pos, word1)) {
+            if (isWordBoundary(text, pos, word1.length())) {
                 validWord1Positions.push_back(pos);
             }
         }
@@ -225,36 +156,91 @@ namespace {
         }
         
         // Prevent excessive matches
-        const int MAX_MATCHES = 2000; // Increased from previous 100 limit
+        // Remove artificial limit
+        // const int MAX_MATCHES = 3000; // Reduced to prevent memory issues
+        
+        // Reserve memory for matches to avoid reallocations
+        matches.reserve(validWord1Positions.size() * 2);
         
         // Find word2 near each valid word1 position
         for (size_t pos1 : validWord1Positions) {
-            if (matches.size() >= MAX_MATCHES) {
-                break;
-            }
+            // Remove the MAX_MATCHES check
+            // if (matches.size() >= MAX_MATCHES) {
+            //     break;
+            // }
             
             // Start position for word2 search
             size_t start2 = pos1 + word1.length();
             
-            // Maximum position to search for word2 (respecting gap limit)
-            size_t maxPos2 = std::min(start2 + gap, text.length());
+            // Skip if we've already reached the end of text
+            if (start2 >= text.length()) {
+                continue;
+            }
             
-            // Find all potential word2 matches within gap
-            for (size_t pos2 = start2; pos2 <= maxPos2; pos2++) {
-                if (pos2 + word2.length() > text.length()) {
+            // Maximum position to search for word2 (respecting gap limit)
+            size_t maxPos2 = std::min(start2 + gap, text.length() - word2.length());
+            
+            // Skip if no valid positions for word2
+            if (maxPos2 < start2) {
+                continue;
+            }
+            
+            // Extract the substring to search for word2 matches
+            // This is more efficient than checking each position individually
+            std::string_view searchRange(text.data() + start2, maxPos2 - start2 + 1);
+            
+            // Find all positions of word2 in this range
+            std::vector<size_t> word2Positions;
+            
+            // For small ranges, do a direct substring search
+            if (searchRange.length() < 100) {
+                size_t pos = 0;
+                while (pos <= searchRange.length() - word2.length()) {
+                    bool match = true;
+                    
+                    // Check each character
+                    for (size_t i = 0; i < word2.length(); i++) {
+                        char c1 = searchRange[pos + i];
+                        char c2 = word2[i];
+                        
+                        if (caseInsensitive) {
+                            if (std::tolower(c1) != std::tolower(c2)) {
+                                match = false;
+                                break;
+                            }
+                        } else {
+                            if (c1 != c2) {
+                                match = false;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (match) {
+                        word2Positions.push_back(pos);
+                    }
+                    pos++;
+                }
+            } else {
+                // For larger ranges, convert to string and use the simple search
+                std::string rangeStr(searchRange);
+                auto tempPositions = simpleSearch(rangeStr, word2, caseInsensitive);
+                word2Positions.insert(word2Positions.end(), tempPositions.begin(), tempPositions.end());
+            }
+            
+            // Process each found position of word2
+            for (size_t offsetPos2 : word2Positions) {
+                size_t pos2 = start2 + offsetPos2;
+                
+                // Validate position
+                if (pos2 >= text.length() || pos2 + word2.length() > text.length()) {
                     continue;
                 }
                 
-                bool found;
-                if (caseInsensitive) {
-                    found = (textLower.compare(pos2, word2Lower.length(), word2Lower) == 0);
-                } else {
-                    found = (text.compare(pos2, word2.length(), word2) == 0);
-                }
-                
-                if (found && isWordBoundary(text, pos2, word2)) {
+                // Check word boundary
+                if (isWordBoundary(text, pos2, word2.length())) {
                     // Calculate char count between words
-                    int chars = countCharsBetween(text, start2, pos2);
+                    int chars = static_cast<int>(pos2 - start2);
                     
                     // Check if within gap constraint
                     if (chars <= gap) {
@@ -265,7 +251,6 @@ namespace {
                         };
                         
                         matches.push_back(match);
-                        break; // Found closest match for this word1, move to next word1
                     }
                 }
             }
@@ -289,11 +274,20 @@ int* search(const char* text, int textLen,
            const char* word1, int word1Len, 
            const char* word2, int word2Len, 
            int gap, bool caseInsensitive) {
-    // Input validation
+    // Input validation with extra safety
     if (!text || textLen <= 0 || !word1 || word1Len <= 0 || 
-        !word2 || word2Len <= 0 || gap < 0) {
-        return nullptr;
+        !word2 || word2Len <= 0 || gap < 0 || gap > 1000000) {
+        // Return empty result for invalid inputs
+        static std::vector<int> emptyResult = {-1};
+        return emptyResult.data();
     }
+    
+    // Remove text length limit
+    // Cap text length to prevent memory issues
+    // const int MAX_TEXT_LENGTH = 5000000; // 5MB limit for safety
+    // if (textLen > MAX_TEXT_LENGTH) {
+    //     textLen = MAX_TEXT_LENGTH;
+    // }
     
     // Static to ensure the vector doesn't get destroyed when the function returns
     static std::vector<int> results;
@@ -305,13 +299,11 @@ int* search(const char* text, int textLen,
         std::string w1(word1, word1Len);
         std::string w2(word2, word2Len);
         
-        // Create lowercase versions for case-insensitive search
-        std::string strLower = caseInsensitive ? toLower(str) : "";
-        std::string w1Lower = caseInsensitive ? toLower(w1) : "";
-        std::string w2Lower = caseInsensitive ? toLower(w2) : "";
-        
         // Find matches using optimized algorithm
-        auto matches = findMatches(str, w1, w2, strLower, w1Lower, w2Lower, gap, caseInsensitive);
+        auto matches = findMatches(str, w1, w2, gap, caseInsensitive);
+        
+        // Pre-allocate result vector
+        results.reserve(matches.size() * 3 + 1);
         
         // Store results in flat array format: [start1, length1, charCount1, start2, length2, charCount2, ... -1]
         for (const auto& match : matches) {
