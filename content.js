@@ -657,7 +657,7 @@ function getDocumentText() {
 function highlightMatches(matches) {
     console.log('[CONTENT] Starting highlight process for matches:', 
         matches.map(m => ({
-            text: m.text.trim(),
+            text: m.text?.trim(),
             start: m.start,
             length: m.length,
             wordCount: m.wordCount,
@@ -671,101 +671,117 @@ function highlightMatches(matches) {
     
     // Reset navigation
     currentMatchIndex = -1;
-    totalMatches = matches.length;
+    totalMatches = 0;
     
-    // Get fresh text mapping
-    console.log('[CONTENT] Creating text position mapping...');
-    getDocumentText();
-    
-    if (!window.textPositionMap) {
-        console.error('[CONTENT] Failed to create text position mapping');
+    if (!matches || matches.length === 0) {
+        console.log('[CONTENT] No matches to highlight');
         return;
     }
     
-    const { original, normalized, positions } = window.textPositionMap;
+    // Use a direct approach that doesn't rely on text positions
+    // This is more resilient to DOM changes
+    const highlightedElements = [];
     
-    console.log('[CONTENT] Text mapping:', {
-        originalLength: original.length,
-        normalizedLength: normalized.length,
-        nodeCount: positions.length
-    });
-    
-    // Simple approach: create highlights directly
+    // Process each match individually using Range API 
     for (const match of matches) {
-        console.log('[CONTENT] Processing match:', {
-            start: match.start,
-            length: match.length,
-            text: normalized.substr(match.start, match.length)
-        });
-        
-        // Find a valid text node containing this match
-        let matchNode = null;
-        let matchPosition = null;
-        
-        for (const pos of positions) {
-            if (!pos.node || !pos.node.parentNode) continue;
-            
-            const nodeStart = pos.normalizedStart;
-            const nodeEnd = nodeStart + pos.normalizedLength;
-            
-            if (match.start >= nodeStart && match.start < nodeEnd) {
-                matchNode = pos.node;
-                matchPosition = pos;
-                break;
-            }
-        }
-        
-        if (!matchNode) {
-            console.error('[CONTENT] Could not find node for match:', match);
+        // Skip invalid matches
+        if (!match.text) {
+            console.log('[CONTENT] Skipping match with no text:', match);
             continue;
         }
         
-        console.log('[CONTENT] Found match node:', {
-            node: matchNode.textContent,
-            parent: matchNode.parentNode.tagName,
-            position: matchPosition
+        console.log('[CONTENT] Processing match:', {
+            text: match.text,
+            word1: match.word1,
+            word2: match.word2,
+            wordCount: match.wordCount
         });
         
         try {
-            // Get parent info
-            const parent = matchNode.parentNode;
-            
-            // Skip if already highlighted
-            if (parent.classList && parent.classList.contains('wasm-search-highlight')) {
-                console.log('[CONTENT] Node already highlighted, skipping');
-                continue;
-            }
-            
-            // Calculate position within the node
-            const relativeStart = match.start - matchPosition.normalizedStart;
-            
-            // Create highlight
+            // Create a new highlight element
             const highlight = document.createElement('span');
             highlight.className = 'wasm-search-highlight new';
             highlight.textContent = match.text;
-            highlight.setAttribute('data-match-start', match.start);
-            highlight.setAttribute('data-match-length', match.length);
-            highlight.setAttribute('data-word1', match.word1 || '');
-            highlight.setAttribute('data-word2', match.word2 || '');
             
-            // Add click handler
-            highlight.addEventListener('click', () => {
-                const highlights = document.querySelectorAll('.wasm-search-highlight');
-                const index = Array.from(highlights).indexOf(highlight);
-                scrollToMatch(index);
-            });
+            if (match.word1) highlight.setAttribute('data-word1', match.word1);
+            if (match.word2) highlight.setAttribute('data-word2', match.word2);
             
-            // Simple direct DOM replacement - simpler approach that's less error-prone
-            const highlightContainer = document.createElement('span');
-            highlightContainer.className = 'highlight-container';
+            // Find this text in the document
+            const matchText = match.text;
+            const textNodes = [];
             
-            // Add the highlight directly to the page
-            const paragraph = document.createElement('p');
-            paragraph.appendChild(highlight);
-            document.body.appendChild(paragraph);
+            // Get all text nodes
+            const walker = document.createTreeWalker(
+                document.body,
+                NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: function(node) {
+                        // Skip scripts, styles, and hidden elements
+                        const parent = node.parentNode;
+                        if (!parent) return NodeFilter.FILTER_REJECT;
+                        
+                        if (parent.tagName === 'SCRIPT' || 
+                            parent.tagName === 'STYLE' ||
+                            parent.offsetParent === null) {
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                }
+            );
             
-            console.log('[CONTENT] Successfully created highlight');
-            totalMatches++;
+            let textNode;
+            while (textNode = walker.nextNode()) {
+                // Skip empty nodes
+                if (!textNode.textContent.trim()) continue;
+                
+                // Skip nodes that are already highlighted
+                if (textNode.parentNode && 
+                    textNode.parentNode.classList && 
+                    textNode.parentNode.classList.contains('wasm-search-highlight')) {
+                    continue;
+                }
+                
+                textNodes.push(textNode);
+            }
+            
+            console.log(`[CONTENT] Found ${textNodes.length} candidate text nodes`);
+            
+            // Find the text in one of our text nodes
+            let found = false;
+            for (const node of textNodes) {
+                const nodeText = node.textContent;
+                const pos = nodeText.indexOf(matchText);
+                
+                if (pos >= 0) {
+                    console.log(`[CONTENT] Found match text "${matchText}" in node: "${nodeText.substring(0, 30)}..."`);
+                    
+                    const range = document.createRange();
+                    range.setStart(node, pos);
+                    range.setEnd(node, pos + matchText.length);
+                    
+                    // Extract the matched text and create a highlight
+                    const fragment = range.extractContents();
+                    highlight.appendChild(fragment);
+                    range.insertNode(highlight);
+                    
+                    // Add click handler
+                    highlight.addEventListener('click', () => {
+                        const highlights = document.querySelectorAll('.wasm-search-highlight');
+                        const index = Array.from(highlights).indexOf(highlight);
+                        scrollToMatch(index);
+                    });
+                    
+                    highlightedElements.push(highlight);
+                    totalMatches++;
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                console.log(`[CONTENT] Could not find match text: "${matchText}" in document`);
+            }
         } catch (error) {
             console.error('[CONTENT] Error creating highlight:', error);
         }
@@ -778,7 +794,7 @@ function highlightMatches(matches) {
     });
     
     // Scroll to first match if any found
-    if (totalMatches > 0) {
+    if (totalMatches > 0 && highlightedElements.length > 0) {
         setTimeout(() => {
             scrollToMatch(0);
         }, 100);
