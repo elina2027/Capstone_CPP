@@ -465,8 +465,30 @@ function handleSearchComplete(detail) {
         if (matches.length > 0) {
             highlightMatches(matches);
             updateBanner(`Found ${matches.length} match${matches.length > 1 ? 'es' : ''}`);
+            
+            // Send match count to background script to update popup
+            try {
+                chrome.runtime.sendMessage({
+                    type: 'MATCH_COUNT',
+                    count: matches.length
+                });
+                console.log('[CONTENT] Sent match count to background:', matches.length);
+            } catch (error) {
+                console.error('[CONTENT] Failed to send match count to background:', error);
+            }
         } else {
             updateBanner('No matches found');
+            
+            // Send zero match count to background script
+            try {
+                chrome.runtime.sendMessage({
+                    type: 'MATCH_COUNT',
+                    count: 0
+                });
+                console.log('[CONTENT] Sent zero match count to background');
+            } catch (error) {
+                console.error('[CONTENT] Failed to send match count to background:', error);
+            }
         }
     } catch (error) {
         console.error('[CONTENT] Error processing search results:', error);
@@ -513,6 +535,17 @@ function removeHighlights() {
     nav.style.display = 'none';
     currentMatchIndex = -1;
     totalMatches = 0;
+    
+    // Send zero match count to background script
+    try {
+        chrome.runtime.sendMessage({
+            type: 'MATCH_COUNT',
+            count: 0
+        });
+        console.log('[CONTENT] Sent zero match count to background after clearing highlights');
+    } catch (error) {
+        console.error('[CONTENT] Failed to send match count to background:', error);
+    }
 }
 
 // Helper function to normalize text while preserving word boundaries

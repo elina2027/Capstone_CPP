@@ -1,27 +1,48 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <style>
-    body { font-family: sans-serif; padding: 10px; }
-    input { margin: 5px 0; width: 100%; }
-    button { margin-top: 10px; width: 100%; }
-    #matchCount { 
-      margin-top: 10px;
-      padding: 8px;
-      background: #f0f0f0;
-      border-radius: 4px;
-      text-align: center;
-      font-weight: bold;
-    }
-  </style>
+  <link rel="stylesheet" href="popup.css">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+  <title>Word Gap Search</title>
 </head>
 <body>
-  <input id="word1" type="text" placeholder="Word 1">
-  <input id="word2" type="text" placeholder="Word 2">
-  <input id="gap" type="number" placeholder="Gap (number)" value="20">
-  <button id="searchBtn">Search</button>
-  <button id="cleanBtn">Clean</button>
-  <div id="matchCount">Total matches: 0</div>
+  <div class="popup-container">
+    <header>
+      <h1>Ctrl-F with Gap</h1>
+      <p>Search for two words with a specified gap between them</p>
+    </header>
+    
+    <div class="search-form">
+      <div class="input-group">
+        <label for="word1">First Word</label>
+        <input id="word1" type="text" placeholder="Enter first word...">
+      </div>
+      
+      <div class="input-group">
+        <label for="word2">Second Word</label>
+        <input id="word2" type="text" placeholder="Enter second word...">
+      </div>
+      
+      <div class="input-group">
+        <label for="gap">Maximum Words Between</label>
+        <div class="gap-input">
+          <input id="gap" type="number" min="0" value="20">
+          <div class="gap-buttons">
+            <button class="gap-btn" data-action="decrease">−</button>
+            <button class="gap-btn" data-action="increase">+</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="actions">
+        <button id="searchBtn" class="primary">Search</button>
+        <button id="cleanBtn" class="secondary">Clear Highlights</button>
+      </div>
+    </div>
+    
+    <div id="matchCount" class="results">Total matches: 0</div>
+  </div>
+  
   <script src="popup.js"></script>
 </body>
 </html>
