@@ -138,6 +138,8 @@ function updateNavigation() {
 // Function to scroll to match
 function scrollToMatch(index) {
     const highlights = document.querySelectorAll('.wasm-search-highlight');
+    totalMatches = highlights.length; // Ensure we have the latest count
+    
     if (index >= 0 && index < highlights.length) {
         // Remove active class from all highlights
         highlights.forEach(h => h.classList.remove('active'));
@@ -264,18 +266,8 @@ function handleMessage(type, detail, messageId) {
                 
                 if (matches.length > 0) {
                     highlightMatches(matches);
-                    updateBanner(`Found ${matches.length} match${matches.length > 1 ? 'es' : ''}`);
-                    
-                    // Send match count to background script to update popup
-                    try {
-                        chrome.runtime.sendMessage({
-                            type: 'MATCH_COUNT',
-                            count: matches.length
-                        });
-                        console.log('[CONTENT] Sent match count to background:', matches.length);
-                    } catch (error) {
-                        console.error('[CONTENT] Failed to send match count to background:', error);
-                    }
+                    // Note: Match count and banner will be updated in highlightMatches
+                    // with the actual count of highlighted elements
                 } else {
                     updateBanner('No matches found');
                     
@@ -291,37 +283,40 @@ function handleMessage(type, detail, messageId) {
                     }
                 }
             } catch (error) {
-                console.error('[CONTENT] Error processing search results:', error);
-                updateBanner('Error processing search results', true);
+                handleSearchError(error);
             } finally {
-                // Reset the search process flag
-                setTimeout(() => {
-                    window.inSearchProcess = false;
-                }, 1000);  // Wait 1 second before allowing new searches
+                // Reset search process flag
+                window.inSearchProcess = false;
             }
             break;
             
         case MessageTypes.SEARCH_ERROR:
-            handleSearchError(detail);
+            handleSearchError(detail || 'Unknown search error');
+            window.inSearchProcess = false;
             break;
             
         case MessageTypes.RUN_SEARCH:
-            try {
-                // Validate search parameters
-                if (!detail || typeof detail !== 'object') {
-                    throw new Error('Invalid search request: missing parameters');
-                }
-
-                const { word1, word2, gap, caseInsensitive } = detail;
-                initiateSearch(word1, word2, gap, caseInsensitive);
-            } catch (error) {
-                console.error('[CONTENT] Search error:', error);
-                updateBanner('Error: ' + error.message, true);
+            // Ensure we have valid details
+            if (!detail) {
+                console.error('[CONTENT] Invalid search details');
+                return;
             }
+            
+            const { word1, word2, gap, caseInsensitive } = detail;
+            console.log('[CONTENT] Starting search:', { word1, word2, gap, caseInsensitive });
+            
+            // Validate minimal parameters
+            if (!word1 || !word2 || gap === undefined) {
+                console.error('[CONTENT] Missing required search parameters');
+                updateBanner('Error: Missing search parameters', true);
+                return;
+            }
+            
+            initiateSearch(word1, word2, gap, caseInsensitive);
             break;
             
         default:
-            console.log('[CONTENT] Unhandled message type:', type);
+            console.log('[CONTENT] Received unhandled message type:', type);
     }
 }
 
@@ -660,10 +655,10 @@ function highlightMatches(matches) {
     
     // Reset navigation
     currentMatchIndex = -1;
-    totalMatches = 0;
     
     if (!matches || matches.length === 0) {
         console.log('[CONTENT] No matches to highlight');
+        totalMatches = 0;
         return;
     }
     
@@ -796,7 +791,6 @@ function highlightMatches(matches) {
                 // Mark this match as highlighted
                 highlightedTexts.add(matchId);
                 highlightedElements.push(highlight);
-                totalMatches++;
                 found = true;
                 
                 console.log('[CONTENT] Successfully highlighted match:', matchId);
@@ -810,11 +804,26 @@ function highlightMatches(matches) {
         }
     }
     
+    // Get the ACTUAL count of highlighted elements
+    const actualHighlightedElements = document.querySelectorAll('.wasm-search-highlight');
+    totalMatches = actualHighlightedElements.length;
+    
     // Update match count and navigation
     console.log('[CONTENT] Highlight process complete:', {
         expectedMatches: matches.length,
         actualHighlights: totalMatches
     });
+    
+    // Send accurate match count to background script
+    try {
+        chrome.runtime.sendMessage({
+            type: 'MATCH_COUNT',
+            count: totalMatches
+        });
+        console.log('[CONTENT] Sent accurate match count to background:', totalMatches);
+    } catch (error) {
+        console.error('[CONTENT] Failed to send match count to background:', error);
+    }
     
     // Scroll to first match if any found
     if (totalMatches > 0 && highlightedElements.length > 0) {
