@@ -125,49 +125,57 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   
   // Function to stop the search timer
-  function stopSearchTimer() {
-    if (searchTimer) {
-      clearInterval(searchTimer);
-      searchTimer = null;
-      
+  function stopSearchTimer(recalculateTime = true) {
+    if (!searchTimer) {
+      return; // Timer is not running
+    }
+    
+    console.log('Stopping search timer, recalculate:', recalculateTime);
+    
+    // Clear the interval first
+    clearInterval(searchTimer);
+    searchTimer = null;
+    
+    // Get the precise time if we need to recalculate
+    if (recalculateTime) {
       const elapsedTime = performance.now() - searchStartTime;
       searchDuration = elapsedTime / 1000; // Convert to seconds with full precision
-      
-      // Format with variable decimal places based on duration
-      let formattedTime;
-      if (searchDuration < 0.001) {
-        // For extremely fast searches (sub-millisecond)
-        formattedTime = searchDuration.toFixed(6);
-      } else if (searchDuration < 0.01) {
-        // For very fast searches (under 10ms)
-        formattedTime = searchDuration.toFixed(5);
-      } else if (searchDuration < 0.1) {
-        // For fast searches (under 100ms)
-        formattedTime = searchDuration.toFixed(4); 
-      } else if (searchDuration < 1) {
-        // For searches under 1 second
-        formattedTime = searchDuration.toFixed(3);
-      } else {
-        // For longer searches
-        formattedTime = searchDuration.toFixed(2);
-      }
-      
-      searchTimerDiv.textContent = `Search time: ${formattedTime}s`;
-      
-      // Highlight extremely fast searches differently
-      if (searchDuration < 0.01) {
-        searchTimerDiv.style.color = '#4CAF50'; // Green for very fast searches
-      } else if (searchDuration < 0.1) {
-        searchTimerDiv.style.color = '#2196F3'; // Blue for fast searches
-      } else {
-        searchTimerDiv.style.color = ''; // Default color for normal searches
-      }
-      
-      setTimeout(() => {
-        searchTimerDiv.classList.remove('active');
-        searchTimerDiv.style.color = ''; // Reset color
-      }, 3000); // Keep timer highlighted for 3 seconds
     }
+    
+    // Format with variable decimal places based on duration
+    let formattedTime;
+    if (searchDuration < 0.001) {
+      // For extremely fast searches (sub-millisecond)
+      formattedTime = searchDuration.toFixed(6);
+    } else if (searchDuration < 0.01) {
+      // For very fast searches (under 10ms)
+      formattedTime = searchDuration.toFixed(5);
+    } else if (searchDuration < 0.1) {
+      // For fast searches (under 100ms)
+      formattedTime = searchDuration.toFixed(4); 
+    } else if (searchDuration < 1) {
+      // For searches under 1 second
+      formattedTime = searchDuration.toFixed(3);
+    } else {
+      // For longer searches
+      formattedTime = searchDuration.toFixed(2);
+    }
+    
+    searchTimerDiv.textContent = `Search time: ${formattedTime}s`;
+    
+    // Highlight extremely fast searches differently
+    if (searchDuration < 0.01) {
+      searchTimerDiv.style.color = '#4CAF50'; // Green for very fast searches
+    } else if (searchDuration < 0.1) {
+      searchTimerDiv.style.color = '#2196F3'; // Blue for fast searches
+    } else {
+      searchTimerDiv.style.color = ''; // Default color for normal searches
+    }
+    
+    setTimeout(() => {
+      searchTimerDiv.classList.remove('active');
+      searchTimerDiv.style.color = ''; // Reset color
+    }, 3000); // Keep timer highlighted for 3 seconds
   }
   
   // Gap increment/decrement buttons
@@ -251,7 +259,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }).catch((error) => {
         showError('Could not execute search');
         hideLoadingState();
-        stopSearchTimer();
+        stopSearchTimer(false);
       });
     });
   });
@@ -273,7 +281,7 @@ document.addEventListener('DOMContentLoaded', function() {
     searchTimerDiv.textContent = '';
     
     // Stop the timer if it's running
-    stopSearchTimer();
+    stopSearchTimer(false);
     
     // Disable navigation buttons
     updateNavigationButtons(0, -1);
@@ -305,7 +313,7 @@ document.addEventListener('DOMContentLoaded', function() {
     resultsText.textContent = 'Error: ' + message;
     currentMatchDiv.textContent = '';
     hideLoadingState();
-    stopSearchTimer();
+    stopSearchTimer(false);
     updateNavigationButtons(0, -1);
   }
   
@@ -334,9 +342,23 @@ document.addEventListener('DOMContentLoaded', function() {
   // Listen for match count messages
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'MATCH_COUNT') {
-      // IMPORTANT: Stop the timer immediately when we receive the match count
-      // This ensures accurate timing measurement of the actual search process
-      stopSearchTimer();
+      console.log('Received MATCH_COUNT message with:', message);
+      
+      // If we received the execution time from WebAssembly, use it for more accuracy
+      if (message.executionTime !== undefined) {
+        const wasmExecutionTime = message.executionTime;
+        // Use the C++ execution time directly
+        searchDuration = wasmExecutionTime;
+        console.log('Using WebAssembly execution time:', searchDuration);
+      } else {
+        // Calculate based on our timer
+        const elapsedTime = performance.now() - searchStartTime;
+        searchDuration = elapsedTime / 1000; // Convert to seconds
+        console.log('Using calculated time:', searchDuration);
+      }
+      
+      // Stop the timer - IMPORTANT: Do this FIRST before any other operations
+      stopSearchTimer(false); // false = don't recalculate time
       
       // Hide loading state
       hideLoadingState();
@@ -344,7 +366,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const count = message.count;
       
       // Log detailed information about the count
-      console.debug(`Received MATCH_COUNT message with count=${count}`);
+      console.log(`Received MATCH_COUNT message with count=${count}, time=${searchDuration}s`);
       
       // Update UI with match count
       updateMatchCount(count);
@@ -353,7 +375,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (message.type === 'FORCE_SYNC_COUNT') {
       // Update the count without stopping the timer
       const count = message.count;
-      console.debug(`Received FORCE_SYNC_COUNT message with count=${count}`);
+      console.log(`Received FORCE_SYNC_COUNT message with count=${count}`);
       updateMatchCount(count);
     }
     
@@ -365,7 +387,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Also update the match count display with the most accurate count
       // This ensures popup and content script stay in sync
       if (message.total !== totalMatches) {
-        console.debug(`Updating count from navigation: old=${totalMatches}, new=${message.total}`);
+        console.log(`Updating count from navigation: old=${totalMatches}, new=${message.total}`);
         updateMatchCount(message.total);
       }
     }

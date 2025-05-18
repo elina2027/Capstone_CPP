@@ -216,6 +216,9 @@ function executeSearch(word1, word2, gap, caseInsensitive) {
     let word2Alloc = null;
     
     try {
+        // Capture start time for performance measurement
+        const startTime = performance.now();
+        
         const text = document.body.textContent;
         if (!text) {
             throw new Error('No text content available for search');
@@ -235,6 +238,10 @@ function executeSearch(word1, word2, gap, caseInsensitive) {
             caseInsensitive ? 1 : 0
         );
         
+        // Measure execution time
+        const endTime = performance.now();
+        const executionTime = (endTime - startTime) / 1000; // in seconds
+        
         // Process results
         const matches = [];
         if (resultPtr) {
@@ -249,29 +256,38 @@ function executeSearch(word1, word2, gap, caseInsensitive) {
                 // WebAssembly module now directly returns character count
                 const charCount = wordCount;
                 
-                matches.push({
-                    start,
-                    length,
-                    charCount,
-                    text: text.substr(start, length),
-                    word1,
-                    word2,
-                    caseInsensitive
-                });
+                // Get the text for the match
+                if (start >= 0 && length > 0 && start + length <= text.length) {
+                    const matchText = text.substring(start, start + length);
+                    
+                    matches.push({
+                        start,
+                        length,
+                        charCount,
+                        text: matchText,
+                        word1,
+                        word2,
+                        caseInsensitive
+                    });
+                }
                 
                 i += 3;
             }
         }
         
-        sendToContent(MessageTypes.SEARCH_COMPLETE, { matches });
-        
+        // Send results immediately with execution time
+        sendToContent(MessageTypes.SEARCH_COMPLETE, { 
+            matches,
+            executionTime, 
+            parameters: { word1, word2, gap, caseInsensitive }
+        });
     } catch (error) {
-        sendToContent(MessageTypes.SEARCH_ERROR, error.message);
+        sendToContent(MessageTypes.SEARCH_ERROR, error.message || String(error));
     } finally {
-        // Clean up allocated memory
-        if (textAlloc && Module._free) Module._free(textAlloc.ptr);
-        if (word1Alloc && Module._free) Module._free(word1Alloc.ptr);
-        if (word2Alloc && Module._free) Module._free(word2Alloc.ptr);
+        // Free allocated memory
+        if (textAlloc && textAlloc.ptr) Module._free(textAlloc.ptr);
+        if (word1Alloc && word1Alloc.ptr) Module._free(word1Alloc.ptr);
+        if (word2Alloc && word2Alloc.ptr) Module._free(word2Alloc.ptr);
     }
 }
 

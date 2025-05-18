@@ -311,27 +311,29 @@ function handleMessage(type, detail, messageId) {
                     throw new Error('Invalid search results');
                 }
 
-                const { matches } = detail;
+                const { matches, executionTime, parameters } = detail;
                 
                 // Remove existing highlights first
                 removeHighlights();
                 
+                // CRITICAL - Immediate notification to popup with match count
+                // This must happen before any DOM manipulation
+                try {
+                    console.log(`Sending immediate match count: ${matches.length}, time: ${executionTime}s`);
+                    chrome.runtime.sendMessage({
+                        type: 'MATCH_COUNT',
+                        count: matches.length,
+                        executionTime: executionTime,
+                        parameters: parameters
+                    });
+                } catch (error) {
+                    console.error('Failed to send match count:', error);
+                }
+                
                 if (matches.length > 0) {
                     highlightMatches(matches);
-                    // Note: Match count and banner will be updated in highlightMatches
-                    // with the actual count of highlighted elements
                 } else {
                     updateBanner('No matches found');
-                    
-                    // Send zero match count to background script
-                    try {
-                        chrome.runtime.sendMessage({
-                            type: 'MATCH_COUNT',
-                            count: 0
-                        });
-                    } catch (error) {
-                        // Silently fail
-                    }
                 }
             } catch (error) {
                 handleSearchError(error);
@@ -676,19 +678,6 @@ function highlightMatches(matches) {
             // Force sync to ensure accurate count
             syncMatchCount();
             
-            // Immediately send the final match count to stop timer
-            try {
-                chrome.runtime.sendMessage({
-                    type: 'MATCH_COUNT',
-                    count: totalMatches
-                });
-            } catch (error) {
-                // Silently fail
-            }
-            
-            // Log the counts to verify they match
-            console.debug(`Sending match count to popup: ${totalMatches}`);
-            
             // Now continue with other finalization tasks
             finishHighlighting();
             return;
@@ -857,6 +846,20 @@ function highlightMatches(matches) {
         // If we found matches, navigate to the first one
         if (totalMatches > 0) {
             scrollToMatch(0);
+        }
+        
+        // Only send force sync if actual count differs from initial matches.length
+        // This prevents duplicate MATCH_COUNT messages
+        if (totalMatches !== matches.length) {
+            try {
+                console.log(`Sending updated match count after highlighting: ${totalMatches}`);
+                chrome.runtime.sendMessage({
+                    type: 'FORCE_SYNC_COUNT',
+                    count: totalMatches
+                });
+            } catch (error) {
+                console.error('Failed to send updated count:', error);
+            }
         }
         
         // Clear text cache if it's getting too large (memory optimization)
