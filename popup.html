@@ -42,13 +42,18 @@
       </div>
       
       <div class="actions">
-        <button id="searchBtn" class="primary">Search</button>
+        <button id="searchBtn" class="primary">
+          <span id="searchBtnSpinner" class="button-spinner"></span>
+          <span id="searchBtnText">Search</span>
+        </button>
         <button id="cleanBtn" class="secondary">Clear Highlights</button>
       </div>
     </div>
     
     <div class="results-container">
-      <div id="matchCount" class="results">Total matches: 0</div>
+      <div id="matchCount" class="results">
+        <span id="resultsText">Total matches: 0</span>
+      </div>
       <div id="currentMatch" class="match-position"></div>
       <div id="searchTimer" class="search-timer"></div>
     </div>

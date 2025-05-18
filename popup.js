@@ -6,8 +6,11 @@ document.addEventListener('DOMContentLoaded', function() {
   const word2Input = document.getElementById('word2');
   const gapInput = document.getElementById('gap');
   const searchBtn = document.getElementById('searchBtn');
+  const searchBtnText = document.getElementById('searchBtnText');
+  const searchBtnSpinner = document.getElementById('searchBtnSpinner');
   const cleanBtn = document.getElementById('cleanBtn');
   const matchCountDiv = document.getElementById('matchCount');
+  const resultsText = document.getElementById('resultsText');
   const currentMatchDiv = document.getElementById('currentMatch');
   const searchTimerDiv = document.getElementById('searchTimer');
   const gapBtns = document.querySelectorAll('.gap-btn');
@@ -26,6 +29,34 @@ document.addEventListener('DOMContentLoaded', function() {
   let searchStartTime = 0;
   let searchTimer = null;
   let searchDuration = 0;
+  
+  // Function to show loading state
+  function showLoadingState() {
+    // Show spinner on button only
+    searchBtnSpinner.classList.add('active');
+    
+    // Update button text
+    searchBtnText.textContent = 'Searching...';
+    
+    // Disable the search button
+    searchBtn.disabled = true;
+    
+    // Update status to show searching state
+    matchCountDiv.className = 'results searching';
+    resultsText.textContent = 'Searching...';
+  }
+  
+  // Function to hide loading state
+  function hideLoadingState() {
+    // Hide spinner
+    searchBtnSpinner.classList.remove('active');
+    
+    // Restore button text
+    searchBtnText.textContent = 'Search';
+    
+    // Re-enable the search button
+    searchBtn.disabled = false;
+  }
   
   // Function to start the search timer
   function startSearchTimer() {
@@ -131,15 +162,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     console.log('[POPUP] Search parameters:', { word1, word2, gap, caseInsensitive });
 
+    // Show loading state
+    showLoadingState();
+    
     // Start the search timer
     startSearchTimer();
 
-    // Update status to show searching state while maintaining total matches format
-    matchCountDiv.className = 'results searching';
-    matchCountDiv.textContent = 'Total matches: 0';
-    currentMatchDiv.textContent = '';
-    console.log('[POPUP] Updated status to searching state');
-    
     // Disable navigation buttons during search
     updateNavigationButtons(0, -1);
 
@@ -155,6 +183,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }).catch((error) => {
         console.error('[POPUP] Error injecting search script:', error);
         showError('Could not execute search');
+        hideLoadingState();
         stopSearchTimer();
       });
     });
@@ -174,7 +203,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Reset results display
     matchCountDiv.className = 'results';
-    matchCountDiv.textContent = 'Total matches: 0';
+    resultsText.textContent = 'Total matches: 0';
     currentMatchDiv.textContent = '';
     searchTimerDiv.textContent = '';
     
@@ -211,8 +240,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to show error message
   function showError(message) {
     matchCountDiv.className = 'results error';
-    matchCountDiv.textContent = 'Error: ' + message;
+    resultsText.textContent = 'Error: ' + message;
     currentMatchDiv.textContent = '';
+    hideLoadingState();
     stopSearchTimer();
     updateNavigationButtons(0, -1);
   }
@@ -254,9 +284,12 @@ document.addEventListener('DOMContentLoaded', function() {
       // Stop the timer when results are received
       stopSearchTimer();
       
+      // Hide loading state
+      hideLoadingState();
+      
       const count = message.count;
       matchCountDiv.className = count > 0 ? 'results success' : 'results';
-      matchCountDiv.textContent = `Total matches: ${count}`;
+      resultsText.textContent = `Total matches: ${count}`;
       console.log('[POPUP] Updated match count display to:', count);
       
       // Enable/disable navigation buttons based on match count

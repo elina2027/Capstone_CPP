@@ -10,13 +10,46 @@ banner.style.padding = '10px';
 banner.style.zIndex = '999999999';
 banner.style.fontSize = '14px';
 banner.style.fontFamily = 'monospace';
-banner.textContent = 'Content Script Active - Loading WebAssembly...';
+banner.style.display = 'flex';
+banner.style.alignItems = 'center';
+banner.style.justifyContent = 'center';
+banner.innerHTML = `
+  <span>Content Script Active - Loading WebAssembly...</span>
+  <span id="banner-spinner" style="display: inline-block; margin-left: 10px; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: white; animation: banner-spin 1s linear infinite;"></span>
+`;
+document.head.appendChild(document.createElement('style')).textContent = `
+  @keyframes banner-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
 document.body.appendChild(banner);
 
 // Update banner function
 function updateBanner(text, isError = false) {
     banner.style.backgroundColor = isError ? '#f44336' : '#4CAF50';
-    banner.textContent = text;
+    
+    // Update the text part
+    const textSpan = banner.querySelector('span:first-child');
+    if (textSpan) {
+        textSpan.textContent = text;
+    } else {
+        banner.innerHTML = `
+            <span>${text}</span>
+            <span id="banner-spinner" style="display: none; margin-left: 10px; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: white; animation: banner-spin 1s linear infinite;"></span>
+        `;
+    }
+    
+    // Show/hide spinner based on text content
+    const spinner = banner.querySelector('#banner-spinner');
+    if (spinner) {
+        if (text.includes('Searching') || text.includes('Loading') || text.includes('Initializing')) {
+            spinner.style.display = 'inline-block';
+        } else {
+            spinner.style.display = 'none';
+        }
+    }
+    
     console.log('[CONTENT] Banner updated:', text, isError ? '(error)' : '');
 }
 
