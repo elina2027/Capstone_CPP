@@ -9,9 +9,15 @@ document.addEventListener('DOMContentLoaded', function() {
   const cleanBtn = document.getElementById('cleanBtn');
   const matchCountDiv = document.getElementById('matchCount');
   const gapBtns = document.querySelectorAll('.gap-btn');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
   
   // Focus first input on popup open
   word1Input.focus();
+  
+  // Navigation button state
+  let currentMatchIndex = -1;
+  let totalMatches = 0;
   
   // Gap increment/decrement buttons
   gapBtns.forEach(btn => {
@@ -26,6 +32,32 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     });
   });
+  
+  // Navigation buttons click handlers
+  prevBtn.addEventListener('click', () => {
+    console.log('[POPUP] Previous match button clicked');
+    navigateMatches('prev');
+  });
+  
+  nextBtn.addEventListener('click', () => {
+    console.log('[POPUP] Next match button clicked');
+    navigateMatches('next');
+  });
+  
+  // Function to navigate between matches
+  function navigateMatches(direction) {
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      console.log('[POPUP] Sending navigation command:', direction);
+      
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: navigateMatchesInPage,
+        args: [direction],
+      }).catch((error) => {
+        console.error('[POPUP] Error injecting navigation script:', error);
+      });
+    });
+  }
   
   // Search button click handler
   searchBtn.addEventListener('click', () => {
@@ -60,6 +92,9 @@ document.addEventListener('DOMContentLoaded', function() {
     matchCountDiv.className = 'results searching';
     matchCountDiv.textContent = 'Total matches: 0';
     console.log('[POPUP] Updated status to searching state');
+    
+    // Disable navigation buttons during search
+    updateNavigationButtons(0, -1);
 
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       console.log('[POPUP] Found active tab:', tab);
@@ -83,6 +118,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     matchCountDiv.className = 'results';
     matchCountDiv.textContent = 'Total matches: 0';
+    
+    // Disable navigation buttons
+    updateNavigationButtons(0, -1);
     
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       console.log('[POPUP] Found active tab for cleaning:', tab);
@@ -112,6 +150,32 @@ document.addEventListener('DOMContentLoaded', function() {
   function showError(message) {
     matchCountDiv.className = 'results error';
     matchCountDiv.textContent = 'Error: ' + message;
+    updateNavigationButtons(0, -1);
+  }
+  
+  // Function to update navigation buttons state
+  function updateNavigationButtons(total, current) {
+    totalMatches = total;
+    currentMatchIndex = current;
+    
+    prevBtn.disabled = current <= 0;
+    nextBtn.disabled = current < 0 || current >= total - 1;
+    
+    // Update button text with current position
+    if (total > 0 && current >= 0) {
+      prevBtn.innerHTML = '&uarr;';
+      nextBtn.innerHTML = '&darr;';
+    } else {
+      prevBtn.innerHTML = '&uarr;';
+      nextBtn.innerHTML = '&darr;';
+    }
+    
+    console.log('[POPUP] Updated navigation buttons:', {
+      total,
+      current,
+      prevEnabled: !prevBtn.disabled,
+      nextEnabled: !nextBtn.disabled
+    });
   }
 
   // Listen for match count messages
@@ -123,6 +187,14 @@ document.addEventListener('DOMContentLoaded', function() {
       matchCountDiv.className = count > 0 ? 'results success' : 'results';
       matchCountDiv.textContent = `Total matches: ${count}`;
       console.log('[POPUP] Updated match count display to:', count);
+      
+      // Enable/disable navigation buttons based on match count
+      updateNavigationButtons(count, count > 0 ? 0 : -1);
+    }
+    
+    if (message.type === 'MATCH_NAVIGATION') {
+      // Update navigation buttons when user navigates in the page
+      updateNavigationButtons(message.total, message.current);
     }
   });
 });
@@ -155,5 +227,61 @@ function cleanHighlights() {
     console.log('[PAGE] Sent zero match count to background after cleaning');
   } catch (error) {
     console.error('[PAGE] Failed to send match count to background:', error);
+  }
+}
+
+// Function to navigate between matches in the page
+function navigateMatchesInPage(direction) {
+  console.log('[PAGE] Navigating matches:', direction);
+  
+  // Find all highlight elements
+  const highlights = document.querySelectorAll('.wasm-search-highlight');
+  if (!highlights || highlights.length === 0) {
+    console.log('[PAGE] No highlights found for navigation');
+    return;
+  }
+  
+  // Find current active highlight
+  let currentIndex = -1;
+  highlights.forEach((highlight, index) => {
+    if (highlight.classList.contains('active')) {
+      currentIndex = index;
+    }
+  });
+  
+  // Calculate new index based on direction
+  let newIndex = currentIndex;
+  if (direction === 'next') {
+    newIndex = currentIndex < highlights.length - 1 ? currentIndex + 1 : currentIndex;
+  } else if (direction === 'prev') {
+    newIndex = currentIndex > 0 ? currentIndex - 1 : 0;
+  }
+  
+  // Only update if index changed
+  if (newIndex !== currentIndex) {
+    // Remove active class from all highlights
+    highlights.forEach(h => h.classList.remove('active'));
+    
+    // Add active class to new highlight
+    const highlight = highlights[newIndex];
+    highlight.classList.add('active');
+    
+    // Scroll the highlight into view
+    highlight.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center'
+    });
+    
+    // Send navigation update message
+    try {
+      chrome.runtime.sendMessage({
+        type: 'MATCH_NAVIGATION',
+        current: newIndex,
+        total: highlights.length
+      });
+      console.log('[PAGE] Sent navigation update:', { current: newIndex, total: highlights.length });
+    } catch (error) {
+      console.error('[PAGE] Failed to send navigation update:', error);
+    }
   }
 }

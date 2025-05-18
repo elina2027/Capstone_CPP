@@ -154,8 +154,17 @@ button.secondary:hover {
   background-color: var(--secondary-hover);
 }
 
-.results {
+/* Results container and navigation */
+.results-container {
   margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.results {
+  flex: 1;
   padding: 12px;
   background-color: var(--secondary-color);
   border-radius: var(--border-radius);
@@ -163,6 +172,40 @@ button.secondary:hover {
   font-weight: 500;
   text-align: center;
   transition: var(--transition);
+}
+
+/* Navigation styles */
+.navigation-buttons {
+  display: flex;
+  gap: 10px;
+  margin-left: 10px;
+}
+
+.nav-btn {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 32px;
+  transition: all 0.2s ease;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: #43A047;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.nav-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 /* States for results */

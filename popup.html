@@ -24,12 +24,12 @@
       </div>
       
       <div class="input-group">
-        <label for="gap">Maximum Characters Between</label>
+        <label for="gap">Maximum Words Between</label>
         <div class="gap-input">
           <input id="gap" type="number" min="0" value="20">
-          <div class="gap-buttons">
-            <button class="gap-btn" data-action="decrease">−</button>
-            <button class="gap-btn" data-action="increase">+</button>
+          <div class="navigation-buttons">
+            <button id="prevBtn" class="nav-btn" disabled>&uarr;</button>
+            <button id="nextBtn" class="nav-btn" disabled>&darr;</button>
           </div>
         </div>
       </div>
@@ -40,7 +40,9 @@
       </div>
     </div>
     
-    <div id="matchCount" class="results">Total matches: 0</div>
+    <div class="results-container">
+      <div id="matchCount" class="results">Total matches: 0</div>
+    </div>
   </div>
   
   <script src="popup.js"></script>
