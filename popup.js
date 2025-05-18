@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     if (isNaN(gap) || gap < 0) {
-      showError('Gap must be a positive number');
+      showError('Character gap must be a positive number');
       gapInput.focus();
       return;
     }

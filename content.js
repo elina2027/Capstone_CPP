@@ -744,6 +744,7 @@ function highlightMatches(matches) {
                     // Add data attributes
                     if (match.word1) highlight.setAttribute('data-word1', match.word1);
                     if (match.word2) highlight.setAttribute('data-word2', match.word2);
+                    if (match.charCount !== undefined) highlight.setAttribute('data-char-count', match.charCount);
                     
                     // Create a range for the match
                     const range = document.createRange();

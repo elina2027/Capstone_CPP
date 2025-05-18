@@ -309,10 +309,13 @@ function executeSearch(word1, word2, gap) {
                 const length = Module.HEAP32[(resultPtr >> 2) + i + 1];
                 const wordCount = Module.HEAP32[(resultPtr >> 2) + i + 2];
                 
+                // WebAssembly module now directly returns character count
+                const charCount = wordCount; // The field is still named wordCount in the C++ output for compatibility
+                
                 matches.push({
                     start,
                     length,
-                    wordCount,
+                    charCount,
                     text: text.substr(start, length),
                     word1,
                     word2

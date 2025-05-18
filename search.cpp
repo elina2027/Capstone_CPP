@@ -17,14 +17,14 @@ extern "C" {
 struct Match {
     int start;      // Start position of word1
     int length;     // Total length of the match
-    int wordCount;  // Number of words between matches
+    int charCount;  // Number of characters between matches
 };
 
 // Debug function to log match information
 EMSCRIPTEN_KEEPALIVE
 void debugMatch(const Match& match) {
-    printf("Match: start=%d, length=%d, wordCount=%d\n", 
-           match.start, match.length, match.wordCount);
+    printf("Match: start=%d, length=%d, charCount=%d\n", 
+           match.start, match.length, match.charCount);
 }
 
 // Debug function to print vector contents
@@ -60,29 +60,18 @@ bool isWordBoundary(const std::string& text, size_t pos, const std::string& word
     return validStart && validEnd;
 }
 
-// Count words between positions
-int countWordsBetween(const std::string& text, size_t start, size_t end) {
+// Count characters between positions
+int countCharsBetween(const std::string& text, size_t start, size_t end) {
     if (start >= end) {
-        printf("countWordsBetween: Invalid range (start=%zu, end=%zu)\n", start, end);
+        printf("countCharsBetween: Invalid range (start=%zu, end=%zu)\n", start, end);
         return 0;
     }
     
-    int words = 0;
-    bool inWord = false;
+    // Simply return the number of characters between the positions
+    int chars = end - start;
     
-    for (size_t i = start; i < end; i++) {
-        if (isWordChar(text[i])) {
-            if (!inWord) {
-                words++;
-                inWord = true;
-            }
-        } else {
-            inWord = false;
-        }
-    }
-    
-    printf("countWordsBetween: start=%zu, end=%zu, words=%d\n", start, end, words);
-    return std::max(0, words - 1);  // Return gaps between words
+    printf("countCharsBetween: start=%zu, end=%zu, chars=%d\n", start, end, chars);
+    return chars;
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -132,16 +121,16 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
                 
                 // Check word boundaries for word2
                 if (isWordBoundary(str, found, w2)) {
-                    // Count words between matches
-                    int words = countWordsBetween(str, start2, found);
-                    printf("Words between matches: %d (gap=%d)\n", words, gap);
+                    // Count characters between matches
+                    int chars = countCharsBetween(str, start2, found);
+                    printf("Characters between matches: %d (gap=%d)\n", chars, gap);
                     
-                    if (words <= gap) {
+                    if (chars <= gap) {
                         // Store match information
                         Match match{
                             static_cast<int>(pos),
                             static_cast<int>(found + w2.length() - pos),
-                            words
+                            chars
                         };
                         
                         // Validate match data before storing
@@ -154,7 +143,7 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
                             
                             results.push_back(match.start);
                             results.push_back(match.length);
-                            results.push_back(match.wordCount);
+                            results.push_back(match.charCount);
                             
                             // Debug vector after push
                             debugVector(results, "After push");
