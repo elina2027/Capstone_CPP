@@ -3,6 +3,13 @@
 #include <vector>
 #include <cctype>
 #include <cstdio>
+#include <algorithm> // for std::max
+
+// For IDE intellisense
+#ifndef __EMSCRIPTEN__
+#include <cstddef> // for size_t
+using std::size_t;
+#endif
 
 extern "C" {
 
