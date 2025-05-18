@@ -188,12 +188,12 @@ function scrollToMatch(index) {
         currentMatchIndex = index;
         updateNavigation();
         
-        // Send navigation update to the popup
+        // Send navigation update to the popup with accurate count
         try {
             chrome.runtime.sendMessage({
                 type: 'MATCH_NAVIGATION',
                 current: index,
-                total: highlights.length
+                total: totalMatches // Ensure this is always the accurate count
             });
         } catch (error) {
             // Silently fail
@@ -816,18 +816,23 @@ function highlightMatches(matches) {
         // Update total matches
         totalMatches = highlightedElements.length;
         
-        // Send match count to background/popup script
-        try {
-            chrome.runtime.sendMessage({
-                type: 'MATCH_COUNT',
-                count: totalMatches
-            });
-        } catch (error) {
-            // Silently fail
-        }
-        
-        // Update status in banner
+        // First update banner to ensure UI is responsive
         updateBanner(`Found ${totalMatches} matches`);
+        
+        // Ensure the matches are accessible for navigation
+        updateNavigation();
+        
+        // Send match count to background/popup script AFTER everything is ready
+        setTimeout(() => {
+            try {
+                chrome.runtime.sendMessage({
+                    type: 'MATCH_COUNT',
+                    count: totalMatches
+                });
+            } catch (error) {
+                // Silently fail
+            }
+        }, 50); // Short delay to ensure all DOM updates are complete
         
         // If we found matches, navigate to the first one
         if (totalMatches > 0) {

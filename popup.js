@@ -261,8 +261,13 @@ document.addEventListener('DOMContentLoaded', function() {
       hideLoadingState();
       
       const count = message.count;
+      
+      // Update UI with match count
       matchCountDiv.className = count > 0 ? 'results success' : 'results';
       resultsText.textContent = `Total matches: ${count}`;
+      
+      // Log the count to help with debugging
+      console.debug(`Received match count: ${count}`);
       
       // Enable/disable navigation buttons based on match count
       updateNavigationButtons(count, count > 0 ? 0 : -1);
@@ -271,6 +276,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (message.type === 'MATCH_NAVIGATION') {
       // Update navigation buttons when user navigates in the page
       updateNavigationButtons(message.total, message.current);
+      
+      // Also update the match count display with the most accurate count
+      if (message.total !== totalMatches) {
+        totalMatches = message.total;
+        resultsText.textContent = `Total matches: ${totalMatches}`;
+      }
     }
   });
 });
