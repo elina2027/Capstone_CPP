@@ -51,9 +51,16 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Function to update match count display
   function updateMatchCount(count) {
+    // Store the count from C++ as our authoritative count
     totalMatches = count;
+    
+    // Remember this count for the entire session
+    window.fixedTotalMatches = count;
+    
     matchCountDiv.className = count > 0 ? 'results success' : 'results';
     resultsText.textContent = `Total matches: ${count}`;
+    
+    // Update navigation with the fixed count but current index
     updateNavigationButtons(count, currentMatchIndex);
   }
   
@@ -319,7 +326,9 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Function to update navigation buttons state
   function updateNavigationButtons(total, current) {
-    totalMatches = total;
+    // DO NOT update totalMatches here - keep the original count from C++
+    // totalMatches = total; <- removing this line
+    
     currentMatchIndex = current;
     
     prevBtn.disabled = current <= 0;
@@ -368,27 +377,40 @@ document.addEventListener('DOMContentLoaded', function() {
       // Log detailed information about the count
       console.log(`Received MATCH_COUNT message with count=${count}, time=${searchDuration}s`);
       
-      // Update UI with match count
+      // Set the current match index if provided, otherwise use default (-1)
+      if (count > 0 && message.currentIndex !== undefined) {
+        currentMatchIndex = message.currentIndex;
+      }
+      
+      // Update UI with match count and enable navigation if there are matches
       updateMatchCount(count);
     }
     
     if (message.type === 'FORCE_SYNC_COUNT') {
-      // Update the count without stopping the timer
+      // Log the message but don't update the count
       const count = message.count;
-      console.log(`Received FORCE_SYNC_COUNT message with count=${count}`);
-      updateMatchCount(count);
+      console.log(`Received FORCE_SYNC_COUNT message with count=${count}, but keeping original total=${totalMatches}`);
+      
+      // DO NOT update total matches - keep the original from C++
+      // totalMatches = count;
+      
+      // Just update the navigation UI with current position and original total
+      updateNavigationButtons(totalMatches, currentMatchIndex);
     }
     
     if (message.type === 'MATCH_NAVIGATION') {
       // Update navigation buttons when user navigates in the page
       currentMatchIndex = message.current;
-      updateNavigationButtons(message.total, message.current);
       
-      // Also update the match count display with the most accurate count
-      // This ensures popup and content script stay in sync
-      if (message.total !== totalMatches) {
-        console.log(`Updating count from navigation: old=${totalMatches}, new=${message.total}`);
-        updateMatchCount(message.total);
+      // DO NOT update totalMatches - keep the original count from C++
+      console.log(`Navigation update: current=${message.current}, total maintained at ${totalMatches}`);
+      
+      // Update navigation UI with current position but keep original total
+      updateNavigationButtons(totalMatches, message.current);
+      
+      // Update the match position display
+      if (totalMatches > 0 && message.current >= 0) {
+        currentMatchDiv.textContent = `Match ${message.current + 1} of ${totalMatches}`;
       }
     }
   });
@@ -505,12 +527,14 @@ function navigateMatchesInPage(direction) {
       block: 'center'
     });
     
-    // Send navigation update message
+    // Send navigation update message - KEEP THE CURRENT TOTAL COUNT
     try {
+      // Get the fixed total count from the global window variable, or fall back to DOM count
+      const fixedTotal = window.fixedTotalMatches || totalMatches || highlights.length;
       chrome.runtime.sendMessage({
         type: 'MATCH_NAVIGATION',
         current: newIndex,
-        total: highlights.length
+        total: fixedTotal // Use the fixed total, not the DOM count
       });
     } catch (error) {
       // Silently fail

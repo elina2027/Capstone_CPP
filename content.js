@@ -151,21 +151,18 @@ let totalMatches = 0;
 function updateNavigation() {
     const highlights = document.querySelectorAll('.wasm-search-highlight');
     
-    // Make sure we're consistent with our total count
-    if (highlights.length !== totalMatches) {
-        console.debug(`Count mismatch: highlights=${highlights.length}, totalMatches=${totalMatches}`);
-        totalMatches = highlights.length;
-    }
+    // Get the fixed total from C++
+    const fixedTotal = window.fixedTotalMatches || totalMatches;
     
-    if (totalMatches > 0) {
+    if (highlights.length > 0) {
         nav.style.display = 'flex';
         nav.querySelector('.count').textContent = 
-            `${currentMatchIndex + 1} of ${totalMatches}`;
+            `${currentMatchIndex + 1} of ${fixedTotal}`;
         nav.querySelector('.prev').disabled = currentMatchIndex <= 0;
-        nav.querySelector('.next').disabled = currentMatchIndex >= totalMatches - 1;
+        nav.querySelector('.next').disabled = currentMatchIndex >= highlights.length - 1;
         
         // Update banner to also show match position
-        updateBanner(`Found ${totalMatches} matches - Currently on match ${currentMatchIndex + 1}`);
+        updateBanner(`Found ${fixedTotal} matches - Currently on match ${currentMatchIndex + 1}`);
     } else {
         nav.style.display = 'none';
     }
@@ -175,11 +172,9 @@ function updateNavigation() {
 function scrollToMatch(index) {
     const highlights = document.querySelectorAll('.wasm-search-highlight');
     
-    // Always update the total count based on actual highlights
-    if (highlights.length !== totalMatches) {
-        console.debug(`Updating totalMatches in scrollToMatch: ${totalMatches} -> ${highlights.length}`);
-        totalMatches = highlights.length;
-    }
+    // Do NOT update totalMatches here - use the fixed count from C++
+    // Get the fixed total matches from the global variable
+    const fixedTotal = window.fixedTotalMatches || totalMatches;
     
     if (index >= 0 && index < highlights.length) {
         // Remove active class from all highlights
@@ -196,16 +191,25 @@ function scrollToMatch(index) {
         });
         
         currentMatchIndex = index;
-        updateNavigation();
         
-        // Send navigation update to the popup with accurate count
+        // Update navigation display using the current index but FIXED total
+        nav.style.display = 'flex';
+        nav.querySelector('.count').textContent = 
+            `${currentMatchIndex + 1} of ${fixedTotal}`;
+        nav.querySelector('.prev').disabled = currentMatchIndex <= 0;
+        nav.querySelector('.next').disabled = currentMatchIndex >= highlights.length - 1;
+        
+        // Update banner to also show match position with FIXED total
+        updateBanner(`Found ${fixedTotal} matches - Currently on match ${currentMatchIndex + 1}`);
+        
+        // Send navigation update to the popup with FIXED total count
         try {
             chrome.runtime.sendMessage({
                 type: 'MATCH_NAVIGATION',
                 current: index,
-                total: totalMatches // Ensure this is always the accurate count
+                total: fixedTotal // Use the fixed total from C++
             });
-            console.debug(`Sent navigation update: current=${index}, total=${totalMatches}`);
+            console.debug(`Sent navigation update: current=${index}, total=${fixedTotal}`);
         } catch (error) {
             // Silently fail
         }
@@ -220,7 +224,8 @@ nav.querySelector('.prev').addEventListener('click', () => {
 });
 
 nav.querySelector('.next').addEventListener('click', () => {
-    if (currentMatchIndex < totalMatches - 1) {
+    const highlights = document.querySelectorAll('.wasm-search-highlight');
+    if (currentMatchIndex < highlights.length - 1) {
         scrollToMatch(currentMatchIndex + 1);
     }
 });
@@ -320,11 +325,17 @@ function handleMessage(type, detail, messageId) {
                 // This must happen before any DOM manipulation
                 try {
                     console.log(`Sending immediate match count: ${matches.length}, time: ${executionTime}s`);
+                    // Store the C++ match count and use it consistently
+                    totalMatches = matches.length;
+                    // Set a global variable to remember this is the authoritative count
+                    window.fixedTotalMatches = totalMatches;
+                    
                     chrome.runtime.sendMessage({
                         type: 'MATCH_COUNT',
-                        count: matches.length,
+                        count: totalMatches,
                         executionTime: executionTime,
-                        parameters: parameters
+                        parameters: parameters,
+                        currentIndex: totalMatches > 0 ? 0 : -1 // Set current index to 0 if we have matches
                     });
                 } catch (error) {
                     console.error('Failed to send match count:', error);
@@ -833,32 +844,43 @@ function highlightMatches(matches) {
     
     // Function to finalize the highlighting process
     function finishHighlighting() {
-        // Use the already calculated totalMatches
-        // First update banner to ensure UI is responsive
-        updateBanner(`Found ${totalMatches} matches`);
+        // Get the highlights to use for navigation
+        const highlights = document.querySelectorAll('.wasm-search-highlight');
         
-        // Ensure the matches are accessible for navigation
-        updateNavigation();
+        // Get the fixed total matches from C++
+        const fixedTotal = window.fixedTotalMatches || totalMatches;
         
-        // Double-check that we're using the same count in navigation
-        currentMatchIndex = totalMatches > 0 ? 0 : -1;
+        // Update banner to ensure UI is responsive - use the FIXED total
+        updateBanner(`Found ${fixedTotal} matches`);
+        
+        // Update navigation display with the FIXED total
+        nav.style.display = 'flex';
+        nav.querySelector('.count').textContent = `1 of ${fixedTotal}`;
+        nav.querySelector('.prev').disabled = true;
+        nav.querySelector('.next').disabled = highlights.length <= 1;
+        
+        // Set first match as active
+        currentMatchIndex = highlights.length > 0 ? 0 : -1;
         
         // If we found matches, navigate to the first one
-        if (totalMatches > 0) {
-            scrollToMatch(0);
-        }
-        
-        // Only send force sync if actual count differs from initial matches.length
-        // This prevents duplicate MATCH_COUNT messages
-        if (totalMatches !== matches.length) {
+        if (highlights.length > 0) {
+            // Just scroll to first match without updating the total
+            const highlight = highlights[0];
+            highlight.classList.add('active');
+            highlight.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+            });
+            
+            // Send navigation update with FIXED total
             try {
-                console.log(`Sending updated match count after highlighting: ${totalMatches}`);
                 chrome.runtime.sendMessage({
-                    type: 'FORCE_SYNC_COUNT',
-                    count: totalMatches
+                    type: 'MATCH_NAVIGATION',
+                    current: 0,
+                    total: fixedTotal
                 });
             } catch (error) {
-                console.error('Failed to send updated count:', error);
+                console.error('Failed to send navigation update:', error);
             }
         }
         
