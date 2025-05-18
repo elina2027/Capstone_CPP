@@ -204,7 +204,7 @@ function scrollToMatch(index) {
         
         // Send navigation update to the popup with FIXED total count
         try {
-            chrome.runtime.sendMessage({
+            safeSendMessage({
                 type: 'MATCH_NAVIGATION',
                 current: index,
                 total: fixedTotal // Use the fixed total from C++
@@ -330,12 +330,15 @@ function handleMessage(type, detail, messageId) {
                     // Set a global variable to remember this is the authoritative count
                     window.fixedTotalMatches = totalMatches;
                     
-                    chrome.runtime.sendMessage({
+                    // Set current index to 0 if we have matches - enables navigation immediately
+                    currentMatchIndex = totalMatches > 0 ? 0 : -1;
+                    
+                    safeSendMessage({
                         type: 'MATCH_COUNT',
                         count: totalMatches,
                         executionTime: executionTime,
                         parameters: parameters,
-                        currentIndex: totalMatches > 0 ? 0 : -1 // Set current index to 0 if we have matches
+                        currentIndex: currentMatchIndex // Include current index to enable navigation early
                     });
                 } catch (error) {
                     console.error('Failed to send match count:', error);
@@ -547,7 +550,7 @@ function removeHighlights() {
     
     // Send zero match count to background script
     try {
-        chrome.runtime.sendMessage({
+        safeSendMessage({
             type: 'MATCH_COUNT',
             count: 0
         });
@@ -874,7 +877,7 @@ function highlightMatches(matches) {
             
             // Send navigation update with FIXED total
             try {
-                chrome.runtime.sendMessage({
+                safeSendMessage({
                     type: 'MATCH_NAVIGATION',
                     current: 0,
                     total: fixedTotal
@@ -901,7 +904,7 @@ function syncMatchCount() {
     
     // Send the accurate count to the popup
     try {
-        chrome.runtime.sendMessage({
+        safeSendMessage({
             type: 'FORCE_SYNC_COUNT',
             count: totalMatches
         });
@@ -932,4 +935,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     
     return true; // Keep the message channel open for async response
-}); 
+});
+
+// Helper function for safe message sending
+function safeSendMessage(message) {
+    try {
+        chrome.runtime.sendMessage(message).catch(error => {
+            // Silently handle connection errors
+            if (error && !error.message.includes('receiving end does not exist')) {
+                console.debug('Non-connection error in message sending:', error);
+            }
+        });
+    } catch (error) {
+        // Silently catch any other errors
+        console.debug('Error sending message:', error);
+    }
+} 

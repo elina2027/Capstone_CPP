@@ -37,6 +37,12 @@ document.addEventListener('DOMContentLoaded', function() {
       if (tab && tab.id) {
         try {
           chrome.tabs.sendMessage(tab.id, { type: 'GET_MATCH_COUNT' }, (response) => {
+            // Check for runtime.lastError to avoid unchecked error in console
+            if (chrome.runtime.lastError) {
+              console.debug('Error retrieving match count:', chrome.runtime.lastError.message);
+              return;
+            }
+            
             if (response && response.count !== undefined) {
               console.debug(`Received count from content script: ${response.count}`);
               updateMatchCount(response.count);
@@ -44,6 +50,7 @@ document.addEventListener('DOMContentLoaded', function() {
           });
         } catch (error) {
           // Silently fail - tab might not have our content script
+          console.debug('Tab messaging error:', error);
         }
       }
     });
@@ -211,12 +218,20 @@ document.addEventListener('DOMContentLoaded', function() {
   // Function to navigate between matches
   function navigateMatches(direction) {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab || !tab.id) {
+        console.debug('No active tab found for navigation');
+        return;
+      }
+      
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: navigateMatchesInPage,
         args: [direction],
+      }).then(() => {
+        // Script executed successfully
       }).catch((error) => {
-        // Silently fail
+        // Log the error but don't display to user
+        console.debug('Navigation error:', error);
       });
     });
   }
@@ -257,13 +272,21 @@ document.addEventListener('DOMContentLoaded', function() {
     updateNavigationButtons(0, -1);
 
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab || !tab.id) {
+        showError('Cannot access current tab');
+        hideLoadingState();
+        stopSearchTimer(false);
+        return;
+      }
+      
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: runSearch,
         args: [word1, word2, gap, caseInsensitive],
       }).then(() => {
-        // Script injected
+        // Script injected successfully
       }).catch((error) => {
+        console.debug('Search execution error:', error);
         showError('Could not execute search');
         hideLoadingState();
         stopSearchTimer(false);
@@ -294,13 +317,20 @@ document.addEventListener('DOMContentLoaded', function() {
     updateNavigationButtons(0, -1);
     
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab || !tab.id) {
+        // Just continue with UI cleanup if tab isn't available
+        console.debug('No active tab found for cleaning');
+        return;
+      }
+      
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: cleanHighlights,
       }).then(() => {
-        // Script injected
+        // Script injected successfully
       }).catch((error) => {
-        showError('Could not clean highlights');
+        console.debug('Clean highlights error:', error);
+        // Don't show error to user since UI has already been cleaned
       });
     });
   });
@@ -331,7 +361,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     currentMatchIndex = current;
     
+    // Log the current navigation state
+    console.log(`Updating navigation buttons: total=${total}, current=${current}`);
+    
+    // Disable prev button if at start or no matches
     prevBtn.disabled = current <= 0;
+    
+    // Disable next button if at end or no matches
     nextBtn.disabled = current < 0 || current >= total - 1;
     
     // Update button text with current position
@@ -346,6 +382,9 @@ document.addEventListener('DOMContentLoaded', function() {
       nextBtn.innerHTML = '&darr;';
       currentMatchDiv.textContent = '';
     }
+    
+    // Log button state for debugging
+    console.log(`Button states - prev: ${prevBtn.disabled ? 'disabled' : 'enabled'}, next: ${nextBtn.disabled ? 'disabled' : 'enabled'}`);
   }
 
   // Listen for match count messages
@@ -378,12 +417,23 @@ document.addEventListener('DOMContentLoaded', function() {
       console.log(`Received MATCH_COUNT message with count=${count}, time=${searchDuration}s`);
       
       // Set the current match index if provided, otherwise use default (-1)
-      if (count > 0 && message.currentIndex !== undefined) {
+      if (message.currentIndex !== undefined) {
         currentMatchIndex = message.currentIndex;
+        console.log(`Setting current match index from message: ${currentMatchIndex}`);
+      } else if (count > 0) {
+        // Default to first match if we have matches but no index
+        currentMatchIndex = 0;
+        console.log('Defaulting current match index to 0');
+      } else {
+        currentMatchIndex = -1;
+        console.log('No matches found, setting index to -1');
       }
       
       // Update UI with match count and enable navigation if there are matches
       updateMatchCount(count);
+      
+      // Explicitly update navigation buttons with the current index
+      updateNavigationButtons(count, currentMatchIndex);
     }
     
     if (message.type === 'FORCE_SYNC_COUNT') {
@@ -539,5 +589,20 @@ function navigateMatchesInPage(direction) {
     } catch (error) {
       // Silently fail
     }
+  }
+}
+
+// Helper function for safe message sending
+function safeSendMessage(message) {
+  try {
+    chrome.runtime.sendMessage(message).catch(error => {
+      // Silently handle connection errors
+      if (error && !error.message.includes('receiving end does not exist')) {
+        console.debug('Non-connection error in popup message sending:', error);
+      }
+    });
+  } catch (error) {
+    // Silently catch any other errors
+    console.debug('Error sending message from popup:', error);
   }
 }
