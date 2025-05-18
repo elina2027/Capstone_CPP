@@ -1,6 +1,6 @@
 # Ctrl-F with Gap - WebAssembly Text Search Extension
 
-A high-performance browser extension that enables searching for two words with a specified character gap between them. This extension leverages WebAssembly (compiled from C++) for extremely fast text searching even in large documents.
+Beyond Ctrl+F: A High-Performance Browser Extension for Proximity-Based Text Highlighting Using C++ and WebAssembly. Enables searching for two words with a specified character gap between them.
 
 ## Features
 
