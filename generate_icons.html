@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Generate Extension Icons</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        canvas {
+            border: 1px solid #ccc;
+            margin: 10px 0;
+        }
+        .instructions {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Generate Icons for Ctrl-F with Gap Extension</h1>
+    
+    <div class="instructions">
+        <p>This page will generate placeholder icons for your extension. These are simple placeholders - you may want to create more professional icons later.</p>
+        <p>1. Click the "Generate Icons" button below to create simple magnifying glass icons.</p>
+        <p>2. Right-click each icon and select "Save Image As..." to save them.</p>
+        <p>3. Save the 48x48 icon as "icon48.png" and the 128x128 icon as "icon128.png" in your extension folder.</p>
+    </div>
+    
+    <button id="generateBtn">Generate Icons</button>
+    
+    <div>
+        <h3>48x48 Icon:</h3>
+        <canvas id="canvas48" width="48" height="48"></canvas>
+        <p>Right-click and save as "icon48.png"</p>
+    </div>
+    
+    <div>
+        <h3>128x128 Icon:</h3>
+        <canvas id="canvas128" width="128" height="128"></canvas>
+        <p>Right-click and save as "icon128.png"</p>
+    </div>
+    
+    <script>
+        document.getElementById('generateBtn').addEventListener('click', function() {
+            // Draw 48x48 icon
+            drawMagnifyingGlass(
+                document.getElementById('canvas48'), 
+                48, 
+                '#4285f4'
+            );
+            
+            // Draw 128x128 icon
+            drawMagnifyingGlass(
+                document.getElementById('canvas128'), 
+                128, 
+                '#4285f4'
+            );
+        });
+        
+        function drawMagnifyingGlass(canvas, size, color) {
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, size, size);
+            
+            // Scale factors
+            const glassRadius = size * 0.35;
+            const handleWidth = size * 0.12;
+            const handleLength = size * 0.35;
+            
+            // Center position
+            const centerX = size * 0.4;
+            const centerY = size * 0.4;
+            
+            // Draw glass circle
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, glassRadius, 0, 2 * Math.PI);
+            ctx.lineWidth = size * 0.08;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+            
+            // Draw handle
+            ctx.beginPath();
+            const handleAngle = Math.PI * 0.25; // 45 degrees
+            const startX = centerX + glassRadius * Math.cos(handleAngle);
+            const startY = centerY + glassRadius * Math.sin(handleAngle);
+            const endX = startX + handleLength * Math.cos(handleAngle);
+            const endY = startY + handleLength * Math.sin(handleAngle);
+            
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.lineWidth = handleWidth;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+            
+            // Add highlight effect in the glass
+            ctx.beginPath();
+            ctx.arc(centerX - glassRadius * 0.3, centerY - glassRadius * 0.3, 
+                    glassRadius * 0.2, 0, 2 * Math.PI);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.fill();
+        }
+    </script>
+</body>
+</html> 
