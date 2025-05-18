@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const cleanBtn = document.getElementById('cleanBtn');
   const matchCountDiv = document.getElementById('matchCount');
   const currentMatchDiv = document.getElementById('currentMatch');
+  const searchTimerDiv = document.getElementById('searchTimer');
   const gapBtns = document.querySelectorAll('.gap-btn');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
@@ -20,6 +21,45 @@ document.addEventListener('DOMContentLoaded', function() {
   // Navigation button state
   let currentMatchIndex = -1;
   let totalMatches = 0;
+  
+  // Timer variables
+  let searchStartTime = 0;
+  let searchTimer = null;
+  let searchDuration = 0;
+  
+  // Function to start the search timer
+  function startSearchTimer() {
+    // Clear any existing timer
+    clearInterval(searchTimer);
+    
+    // Record start time and set initial display
+    searchStartTime = performance.now();
+    searchDuration = 0;
+    searchTimerDiv.textContent = 'Searching: 0.0s';
+    searchTimerDiv.classList.add('active');
+    
+    // Start interval to update timer
+    searchTimer = setInterval(() => {
+      const elapsedTime = performance.now() - searchStartTime;
+      searchDuration = Math.round(elapsedTime) / 1000;
+      searchTimerDiv.textContent = `Searching: ${searchDuration.toFixed(1)}s`;
+    }, 100); // Update every 100ms
+  }
+  
+  // Function to stop the search timer
+  function stopSearchTimer() {
+    if (searchTimer) {
+      clearInterval(searchTimer);
+      searchTimer = null;
+      
+      const elapsedTime = performance.now() - searchStartTime;
+      searchDuration = Math.round(elapsedTime) / 1000;
+      searchTimerDiv.textContent = `Search time: ${searchDuration.toFixed(1)}s`;
+      setTimeout(() => {
+        searchTimerDiv.classList.remove('active');
+      }, 2000); // Keep timer highlighted for 2 seconds
+    }
+  }
   
   // Gap increment/decrement buttons
   gapBtns.forEach(btn => {
@@ -91,6 +131,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     console.log('[POPUP] Search parameters:', { word1, word2, gap, caseInsensitive });
 
+    // Start the search timer
+    startSearchTimer();
+
     // Update status to show searching state while maintaining total matches format
     matchCountDiv.className = 'results searching';
     matchCountDiv.textContent = 'Total matches: 0';
@@ -112,6 +155,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }).catch((error) => {
         console.error('[POPUP] Error injecting search script:', error);
         showError('Could not execute search');
+        stopSearchTimer();
       });
     });
   });
@@ -132,6 +176,10 @@ document.addEventListener('DOMContentLoaded', function() {
     matchCountDiv.className = 'results';
     matchCountDiv.textContent = 'Total matches: 0';
     currentMatchDiv.textContent = '';
+    searchTimerDiv.textContent = '';
+    
+    // Stop the timer if it's running
+    stopSearchTimer();
     
     // Disable navigation buttons
     updateNavigationButtons(0, -1);
@@ -165,6 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
     matchCountDiv.className = 'results error';
     matchCountDiv.textContent = 'Error: ' + message;
     currentMatchDiv.textContent = '';
+    stopSearchTimer();
     updateNavigationButtons(0, -1);
   }
   
@@ -202,6 +251,9 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('[POPUP] Received message:', message);
     
     if (message.type === 'MATCH_COUNT') {
+      // Stop the timer when results are received
+      stopSearchTimer();
+      
       const count = message.count;
       matchCountDiv.className = count > 0 ? 'results success' : 'results';
       matchCountDiv.textContent = `Total matches: ${count}`;

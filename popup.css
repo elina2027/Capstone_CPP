@@ -9,6 +9,7 @@
   --border-color: #dadce0;
   --success-color: #34a853;
   --error-color: #ea4335;
+  --timer-color: #fbbc05;
   --border-radius: 8px;
   --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
   --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -182,6 +183,21 @@ button.secondary:hover {
   color: var(--light-text);
   padding: 6px 0;
   transition: var(--transition);
+}
+
+.search-timer {
+  width: 100%;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--light-text);
+  padding: 6px 0;
+  transition: var(--transition);
+}
+
+.search-timer.active {
+  color: var(--timer-color);
+  font-weight: 500;
 }
 
 /* Navigation styles */
