@@ -150,7 +150,12 @@ let totalMatches = 0;
 // Function to update navigation
 function updateNavigation() {
     const highlights = document.querySelectorAll('.wasm-search-highlight');
-    totalMatches = highlights.length;
+    
+    // Make sure we're consistent with our total count
+    if (highlights.length !== totalMatches) {
+        console.debug(`Count mismatch: highlights=${highlights.length}, totalMatches=${totalMatches}`);
+        totalMatches = highlights.length;
+    }
     
     if (totalMatches > 0) {
         nav.style.display = 'flex';
@@ -169,7 +174,12 @@ function updateNavigation() {
 // Function to scroll to match
 function scrollToMatch(index) {
     const highlights = document.querySelectorAll('.wasm-search-highlight');
-    totalMatches = highlights.length; // Ensure we have the latest count
+    
+    // Always update the total count based on actual highlights
+    if (highlights.length !== totalMatches) {
+        console.debug(`Updating totalMatches in scrollToMatch: ${totalMatches} -> ${highlights.length}`);
+        totalMatches = highlights.length;
+    }
     
     if (index >= 0 && index < highlights.length) {
         // Remove active class from all highlights
@@ -195,6 +205,7 @@ function scrollToMatch(index) {
                 current: index,
                 total: totalMatches // Ensure this is always the accurate count
             });
+            console.debug(`Sent navigation update: current=${index}, total=${totalMatches}`);
         } catch (error) {
             // Silently fail
         }
@@ -659,6 +670,26 @@ function highlightMatches(matches) {
     function processMatchBatch(matchIndex, nodeIndex) {
         // Check if we've processed all matches
         if (matchIndex >= matches.length) {
+            // Set the final count
+            totalMatches = highlightedElements.length;
+            
+            // Force sync to ensure accurate count
+            syncMatchCount();
+            
+            // Immediately send the final match count to stop timer
+            try {
+                chrome.runtime.sendMessage({
+                    type: 'MATCH_COUNT',
+                    count: totalMatches
+                });
+            } catch (error) {
+                // Silently fail
+            }
+            
+            // Log the counts to verify they match
+            console.debug(`Sending match count to popup: ${totalMatches}`);
+            
+            // Now continue with other finalization tasks
             finishHighlighting();
             return;
         }
@@ -813,26 +844,15 @@ function highlightMatches(matches) {
     
     // Function to finalize the highlighting process
     function finishHighlighting() {
-        // Update total matches
-        totalMatches = highlightedElements.length;
-        
+        // Use the already calculated totalMatches
         // First update banner to ensure UI is responsive
         updateBanner(`Found ${totalMatches} matches`);
         
         // Ensure the matches are accessible for navigation
         updateNavigation();
         
-        // Send match count to background/popup script AFTER everything is ready
-        setTimeout(() => {
-            try {
-                chrome.runtime.sendMessage({
-                    type: 'MATCH_COUNT',
-                    count: totalMatches
-                });
-            } catch (error) {
-                // Silently fail
-            }
-        }, 50); // Short delay to ensure all DOM updates are complete
+        // Double-check that we're using the same count in navigation
+        currentMatchIndex = totalMatches > 0 ? 0 : -1;
         
         // If we found matches, navigate to the first one
         if (totalMatches > 0) {
@@ -849,10 +869,30 @@ function highlightMatches(matches) {
     processMatchBatch(0, 0);
 }
 
-// Handle messages from the popup
+// Add a function to force-sync the match count
+function syncMatchCount() {
+    const highlights = document.querySelectorAll('.wasm-search-highlight');
+    totalMatches = highlights.length; // Always use the actual DOM count as source of truth
+    
+    // Send the accurate count to the popup
+    try {
+        chrome.runtime.sendMessage({
+            type: 'FORCE_SYNC_COUNT',
+            count: totalMatches
+        });
+        console.debug(`Force-synced match count: ${totalMatches}`);
+    } catch (error) {
+        // Silently fail
+    }
+    
+    return totalMatches;
+}
+
+// Listen for messages from the popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'GET_MATCH_COUNT') {
-        sendResponse({ count: totalMatches });
+        const count = syncMatchCount();
+        sendResponse({ count: count });
     }
     
     if (message.type === 'NAVIGATE_MATCH' && message.direction) {
@@ -861,5 +901,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } else if (message.direction === 'prev' && currentMatchIndex > 0) {
             scrollToMatch(currentMatchIndex - 1);
         }
+        
+        // Always sync after navigation
+        syncMatchCount();
     }
+    
+    return true; // Keep the message channel open for async response
 }); 

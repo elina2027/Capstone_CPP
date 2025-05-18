@@ -28,6 +28,35 @@ document.addEventListener('DOMContentLoaded', function() {
   let searchTimer = null;
   let searchDuration = 0;
   
+  // Request the current match count when popup opens
+  requestCurrentCount();
+  
+  // Function to request current count from content script
+  function requestCurrentCount() {
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (tab && tab.id) {
+        try {
+          chrome.tabs.sendMessage(tab.id, { type: 'GET_MATCH_COUNT' }, (response) => {
+            if (response && response.count !== undefined) {
+              console.debug(`Received count from content script: ${response.count}`);
+              updateMatchCount(response.count);
+            }
+          });
+        } catch (error) {
+          // Silently fail - tab might not have our content script
+        }
+      }
+    });
+  }
+  
+  // Function to update match count display
+  function updateMatchCount(count) {
+    totalMatches = count;
+    matchCountDiv.className = count > 0 ? 'results success' : 'results';
+    resultsText.textContent = `Total matches: ${count}`;
+    updateNavigationButtons(count, currentMatchIndex);
+  }
+  
   // Function to show loading state
   function showLoadingState() {
     // Show spinner on button only
@@ -64,15 +93,35 @@ document.addEventListener('DOMContentLoaded', function() {
     // Record start time and set initial display
     searchStartTime = performance.now();
     searchDuration = 0;
-    searchTimerDiv.textContent = 'Searching: 0.0s';
+    searchTimerDiv.textContent = 'Searching: 0.000000s';
     searchTimerDiv.classList.add('active');
     
     // Start interval to update timer
     searchTimer = setInterval(() => {
       const elapsedTime = performance.now() - searchStartTime;
-      searchDuration = Math.round(elapsedTime) / 1000;
-      searchTimerDiv.textContent = `Searching: ${searchDuration.toFixed(1)}s`;
-    }, 100); // Update every 100ms
+      searchDuration = elapsedTime / 1000; // Convert to seconds with full precision
+      
+      // Format with variable decimal places based on duration
+      let formattedTime;
+      if (searchDuration < 0.001) {
+        // For very fast times (sub-millisecond), show all digits
+        formattedTime = searchDuration.toFixed(6);
+      } else if (searchDuration < 0.01) {
+        // For times under 10ms, show 5 decimal places
+        formattedTime = searchDuration.toFixed(5);
+      } else if (searchDuration < 0.1) {
+        // For times under 100ms, show 4 decimal places
+        formattedTime = searchDuration.toFixed(4);
+      } else if (searchDuration < 1) {
+        // For times under 1 second, show 3 decimal places
+        formattedTime = searchDuration.toFixed(3);
+      } else {
+        // For longer times, show 2 decimal places
+        formattedTime = searchDuration.toFixed(2);
+      }
+      
+      searchTimerDiv.textContent = `Searching: ${formattedTime}s`;
+    }, 10); // Update every 10ms for better precision
   }
   
   // Function to stop the search timer
@@ -82,11 +131,42 @@ document.addEventListener('DOMContentLoaded', function() {
       searchTimer = null;
       
       const elapsedTime = performance.now() - searchStartTime;
-      searchDuration = Math.round(elapsedTime) / 1000;
-      searchTimerDiv.textContent = `Search time: ${searchDuration.toFixed(1)}s`;
+      searchDuration = elapsedTime / 1000; // Convert to seconds with full precision
+      
+      // Format with variable decimal places based on duration
+      let formattedTime;
+      if (searchDuration < 0.001) {
+        // For extremely fast searches (sub-millisecond)
+        formattedTime = searchDuration.toFixed(6);
+      } else if (searchDuration < 0.01) {
+        // For very fast searches (under 10ms)
+        formattedTime = searchDuration.toFixed(5);
+      } else if (searchDuration < 0.1) {
+        // For fast searches (under 100ms)
+        formattedTime = searchDuration.toFixed(4); 
+      } else if (searchDuration < 1) {
+        // For searches under 1 second
+        formattedTime = searchDuration.toFixed(3);
+      } else {
+        // For longer searches
+        formattedTime = searchDuration.toFixed(2);
+      }
+      
+      searchTimerDiv.textContent = `Search time: ${formattedTime}s`;
+      
+      // Highlight extremely fast searches differently
+      if (searchDuration < 0.01) {
+        searchTimerDiv.style.color = '#4CAF50'; // Green for very fast searches
+      } else if (searchDuration < 0.1) {
+        searchTimerDiv.style.color = '#2196F3'; // Blue for fast searches
+      } else {
+        searchTimerDiv.style.color = ''; // Default color for normal searches
+      }
+      
       setTimeout(() => {
         searchTimerDiv.classList.remove('active');
-      }, 2000); // Keep timer highlighted for 2 seconds
+        searchTimerDiv.style.color = ''; // Reset color
+      }, 3000); // Keep timer highlighted for 3 seconds
     }
   }
   
@@ -254,7 +334,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // Listen for match count messages
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'MATCH_COUNT') {
-      // Stop the timer when results are received
+      // IMPORTANT: Stop the timer immediately when we receive the match count
+      // This ensures accurate timing measurement of the actual search process
       stopSearchTimer();
       
       // Hide loading state
@@ -262,25 +343,30 @@ document.addEventListener('DOMContentLoaded', function() {
       
       const count = message.count;
       
+      // Log detailed information about the count
+      console.debug(`Received MATCH_COUNT message with count=${count}`);
+      
       // Update UI with match count
-      matchCountDiv.className = count > 0 ? 'results success' : 'results';
-      resultsText.textContent = `Total matches: ${count}`;
-      
-      // Log the count to help with debugging
-      console.debug(`Received match count: ${count}`);
-      
-      // Enable/disable navigation buttons based on match count
-      updateNavigationButtons(count, count > 0 ? 0 : -1);
+      updateMatchCount(count);
+    }
+    
+    if (message.type === 'FORCE_SYNC_COUNT') {
+      // Update the count without stopping the timer
+      const count = message.count;
+      console.debug(`Received FORCE_SYNC_COUNT message with count=${count}`);
+      updateMatchCount(count);
     }
     
     if (message.type === 'MATCH_NAVIGATION') {
       // Update navigation buttons when user navigates in the page
+      currentMatchIndex = message.current;
       updateNavigationButtons(message.total, message.current);
       
       // Also update the match count display with the most accurate count
+      // This ensures popup and content script stay in sync
       if (message.total !== totalMatches) {
-        totalMatches = message.total;
-        resultsText.textContent = `Total matches: ${totalMatches}`;
+        console.debug(`Updating count from navigation: old=${totalMatches}, new=${message.total}`);
+        updateMatchCount(message.total);
       }
     }
   });
