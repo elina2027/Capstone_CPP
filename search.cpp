@@ -3,7 +3,8 @@
 #include <vector>
 #include <cctype>
 #include <cstdio>
-#include <algorithm> // for std::max and std::transform
+#include <algorithm>
+#include <unordered_set>
 
 // For IDE intellisense
 #ifndef __EMSCRIPTEN__
@@ -11,12 +12,60 @@
 using std::size_t;
 #endif
 
-// Helper function to convert string to lowercase (moved outside extern "C")
+// Helper function to convert string to lowercase
 namespace {
     std::string toLower(const std::string& str) {
         std::string lower = str;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         return lower;
+    }
+    
+    // Build a bad character table for Boyer-Moore search
+    std::vector<int> buildBadCharTable(const std::string& pattern) {
+        const int ALPHABET_SIZE = 256; // ASCII
+        std::vector<int> badChar(ALPHABET_SIZE, -1);
+        
+        for (int i = 0; i < pattern.length(); i++) {
+            badChar[static_cast<unsigned char>(pattern[i])] = i;
+        }
+        
+        return badChar;
+    }
+    
+    // Boyer-Moore search algorithm - much faster for long patterns
+    std::vector<size_t> boyerMooreSearch(const std::string& text, const std::string& pattern) {
+        std::vector<size_t> positions;
+        if (pattern.empty() || text.empty() || pattern.length() > text.length()) {
+            return positions;
+        }
+        
+        auto badChar = buildBadCharTable(pattern);
+        int m = pattern.length();
+        int n = text.length();
+        
+        int s = 0; // shift of the pattern with respect to text
+        while (s <= (n - m)) {
+            int j = m - 1;
+            
+            // Check pattern from right to left
+            while (j >= 0 && pattern[j] == text[s + j]) {
+                j--;
+            }
+            
+            if (j < 0) {
+                // Pattern found
+                positions.push_back(s);
+                
+                // Shift the pattern to the right
+                s += (s + m < n) ? m - badChar[static_cast<unsigned char>(text[s + m])] : 1;
+            } else {
+                // Shift based on bad character rule
+                int badCharShift = j - badChar[static_cast<unsigned char>(text[s + j])];
+                s += std::max(1, badCharShift);
+            }
+        }
+        
+        return positions;
     }
 }
 
@@ -83,26 +132,42 @@ int countCharsBetween(const std::string& text, size_t start, size_t end) {
     return chars;
 }
 
-// Helper function to find next occurrence of word with case sensitivity option
-size_t findWord(const std::string& text, const std::string& word, 
-                const std::string& textLower, const std::string& wordLower,
-                size_t pos, bool caseInsensitive) {
+// Fast search with Boyer-Moore algorithm and case sensitivity option
+std::vector<size_t> fastSearch(const std::string& text, const std::string& word, 
+                           const std::string& textLower, const std::string& wordLower,
+                           bool caseInsensitive) {
+    std::vector<size_t> positions;
+    
     if (caseInsensitive) {
-        size_t found = textLower.find(wordLower, pos);
-        return found;
+        positions = boyerMooreSearch(textLower, wordLower);
+    } else {
+        positions = boyerMooreSearch(text, word);
     }
-    return text.find(word, pos);
+    
+    // Filter for word boundaries
+    std::vector<size_t> validPositions;
+    for (size_t pos : positions) {
+        if (isWordBoundary(text, pos, word)) {
+            validPositions.push_back(pos);
+        }
+    }
+    
+    return validPositions;
 }
 
+// Process text in chunks to avoid long blocking operations
 EMSCRIPTEN_KEEPALIVE
 int* search(const char* text, int textLen, const char* word1, int word1Len, 
            const char* word2, int word2Len, int gap, bool caseInsensitive) {
     // Input validation
     if (!text || textLen <= 0 || !word1 || word1Len <= 0 || !word2 || word2Len <= 0 || gap < 0) {
-        printf("Invalid input parameters\n");
         return nullptr;
     }
     
+    static std::vector<int> results;
+    results.clear();
+    
+    // Convert to C++ strings
     std::string str(text, textLen);
     std::string w1(word1, word1Len);
     std::string w2(word2, word2Len);
@@ -112,99 +177,98 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
     std::string w1Lower = caseInsensitive ? toLower(w1) : "";
     std::string w2Lower = caseInsensitive ? toLower(w2) : "";
     
-    printf("Search parameters: text_len=%d, word1='%s', word2='%s', gap=%d, case_insensitive=%d\n", 
-           textLen, w1.c_str(), w2.c_str(), gap, caseInsensitive);
-    
-    // Use static vector to persist memory between calls
-    static std::vector<int> results;
-    results.clear();
-    debugVector(results, "After clear");
-    
-    size_t pos = 0;
-    int matchCount = 0;
-    const int MAX_MATCHES = 100; // Prevent excessive matches
-    
     printf("Starting search loop with text: '%s'\n", str.substr(0, 50).c_str());
     
-    while (pos < str.length()) {
-        pos = findWord(str, w1, strLower, w1Lower, pos, caseInsensitive);
-        if (pos == std::string::npos) break;
-        
-        printf("Found word1 at position %zu\n", pos);
-        
+    // Find positions of word1 with optimized search
+    std::vector<size_t> word1Positions = fastSearch(str, w1, strLower, w1Lower, caseInsensitive);
+    
+    // Process the text in chunks
+    const int CHUNK_SIZE = 100000; // Process 100K chars at a time
+    int matchCount = 0;
+    const int MAX_MATCHES = 100; // Prevent excessive matches
+
+    // Process each chunk for word1 matches
+    for (size_t pos1 : word1Positions) {
         if (matchCount >= MAX_MATCHES) {
             printf("Maximum match count reached\n");
             break;
         }
         
-        // Check word boundaries for word1
-        if (isWordBoundary(str, pos, w1)) {
-            size_t start2 = pos + w1.length();
-            printf("Looking for word2 starting at position %zu\n", start2);
+        printf("Found word1 at position %zu\n", pos1);
+        
+        size_t start2 = pos1 + w1.length();
+        printf("Looking for word2 starting at position %zu\n", start2);
+        
+        // Calculate the end of search range (don't exceed gap)
+        size_t endSearchPos = start2 + gap + 1;
+        if (endSearchPos > str.length()) {
+            endSearchPos = str.length();
+        }
+        
+        // Extract substring to search for word2
+        std::string chunk = str.substr(start2, endSearchPos - start2);
+        std::string chunkLower = caseInsensitive ? toLower(chunk) : "";
+        
+        // Find word2 in this chunk
+        size_t localPos = 0;
+        size_t found = std::string::npos;
+        
+        if (caseInsensitive) {
+            found = chunkLower.find(w2Lower, localPos);
+        } else {
+            found = chunk.find(w2, localPos);
+        }
+        
+        while (found != std::string::npos && found < chunk.length()) {
+            size_t globalPos = start2 + found;
+            printf("Found word2 at position %zu\n", globalPos);
             
-            // Find the next occurrence of word2
-            size_t found = findWord(str, w2, strLower, w2Lower, start2, caseInsensitive);
-            while (found != std::string::npos && found < str.length()) {
-                printf("Found word2 at position %zu\n", found);
+            // Check word boundaries for word2
+            if (isWordBoundary(str, globalPos, w2)) {
+                // Count characters between matches
+                int chars = countCharsBetween(str, start2, globalPos);
+                printf("Characters between matches: %d (gap=%d)\n", chars, gap);
                 
-                // Check word boundaries for word2
-                if (isWordBoundary(str, found, w2)) {
-                    // Count characters between matches
-                    int chars = countCharsBetween(str, start2, found);
-                    printf("Characters between matches: %d (gap=%d)\n", chars, gap);
+                if (chars <= gap) {
+                    // Store match information
+                    Match match{
+                        static_cast<int>(pos1),
+                        static_cast<int>(globalPos + w2.length() - pos1),
+                        chars
+                    };
                     
-                    if (chars <= gap) {
-                        // Store match information
-                        Match match{
-                            static_cast<int>(pos),
-                            static_cast<int>(found + w2.length() - pos),
-                            chars
-                        };
+                    // Validate match data before storing
+                    if (match.start >= 0 && match.length > 0 && 
+                        match.start + match.length <= textLen) {
                         
-                        // Validate match data before storing
-                        if (match.start >= 0 && match.length > 0 && 
-                            match.start + match.length <= textLen) {
-                            debugMatch(match);
-                            
-                            // Debug vector before push
-                            debugVector(results, "Before push");
-                            
-                            results.push_back(match.start);
-                            results.push_back(match.length);
-                            results.push_back(match.charCount);
-                            
-                            // Debug vector after push
-                            debugVector(results, "After push");
-                            
-                            matchCount++;
-                            break;
-                        } else {
-                            printf("Invalid match data generated: start=%d, length=%d, textLen=%d\n",
-                                   match.start, match.length, textLen);
-                        }
+                        results.push_back(match.start);
+                        results.push_back(match.length);
+                        results.push_back(match.charCount);
+                        
+                        matchCount++;
+                        break; // Found closest match, stop searching
+                    } else {
+                        printf("Invalid match data generated: start=%d, length=%d, textLen=%d\n",
+                               match.start, match.length, textLen);
                     }
                 }
-                // Look for next occurrence if this one wasn't valid or was too far
-                found = findWord(str, w2, strLower, w2Lower, found + 1, caseInsensitive);
+            }
+            
+            // Look for next occurrence
+            localPos = found + 1;
+            if (caseInsensitive) {
+                found = chunkLower.find(w2Lower, localPos);
+            } else {
+                found = chunk.find(w2, localPos);
             }
         }
-        pos++;
     }
     
     // Add terminator
     results.push_back(-1);
-    
-    // Final vector debug
-    debugVector(results, "Final results");
     printf("Search complete: found %d matches\n", matchCount);
     
-    // Get and validate the data pointer
-    int* dataPtr = results.data();
-    printf("Returning pointer: %p, first value: %d\n", 
-           static_cast<void*>(dataPtr), 
-           results.empty() ? -1 : results[0]);
-    
-    return results.empty() ? nullptr : dataPtr;
+    return results.empty() ? nullptr : results.data();
 }
 
 }

@@ -223,6 +223,14 @@ const sentMessages = new Set();
 const processedResults = new Set();
 let lastSearchTime = 0;
 
+// Cache for document text
+let textCache = {
+  text: null,
+  nodes: [],
+  positions: [],
+  timestamp: 0
+};
+
 // Message types
 const MessageTypes = {
     INIT: 'WASM_INIT',
@@ -232,6 +240,16 @@ const MessageTypes = {
     SEARCH_COMPLETE: 'SEARCH_COMPLETE',
     SEARCH_ERROR: 'SEARCH_ERROR'
 };
+
+// Function to clear the text cache
+function clearTextCache() {
+    textCache = {
+        text: null,
+        nodes: [],
+        positions: [],
+        timestamp: 0
+    };
+}
 
 // Function to send messages to page script
 function sendToPage(type, detail) {
@@ -248,6 +266,7 @@ function sendToPage(type, detail) {
 // Force quit any existing search operation and clear highlights
 function forceCleanState() {
     removeHighlights();
+    clearTextCache(); // Clear cache on clean state
     window.inSearchProcess = false;
 }
 
@@ -494,6 +513,9 @@ function removeHighlights() {
         }
     });
     
+    // The DOM structure has changed, clear the text cache
+    clearTextCache();
+    
     // Hide navigation and reset state
     nav.style.display = 'none';
     currentMatchIndex = -1;
@@ -520,6 +542,12 @@ function normalizeText(text) {
 
 // Helper function to get normalized document text
 function getDocumentText() {
+    // Check if we have a valid cached version (less than 5 seconds old)
+    const now = Date.now();
+    if (textCache.text && textCache.timestamp > now - 5000) {
+        return textCache.text;
+    }
+    
     // Get all text nodes in document order
     const walker = document.createTreeWalker(
         document.body,
@@ -596,10 +624,18 @@ function getDocumentText() {
         positions: positions
     };
     
+    // Cache the results
+    textCache = {
+        text: normalizedText,
+        nodes: nodes,
+        positions: positions,
+        timestamp: now
+    };
+    
     return normalizedText;
 }
 
-// Update highlight matches function with a completely different approach
+// Update highlight matches function with optimized DOM operations
 function highlightMatches(matches) {
     // Reset navigation
     currentMatchIndex = -1;
@@ -609,17 +645,48 @@ function highlightMatches(matches) {
         return;
     }
     
-    // Create a single document fragment for all highlights
+    // Create a array to store highlighted elements
     const highlightedElements = [];
     
     // Create a set to store already highlighted text ranges to prevent duplication
     const highlightedTexts = new Set();
     
-    // Process each match
-    for (const match of matches) {
+    // Track total matches for early reporting
+    let processedMatchCount = 0;
+    const totalMatchesToProcess = matches.length;
+    
+    // Batch processing using requestAnimationFrame for better UI responsiveness
+    function processMatchBatch(matchIndex, nodeIndex) {
+        // Check if we've processed all matches
+        if (matchIndex >= matches.length) {
+            finishHighlighting();
+            return;
+        }
+        
+        // Process a batch of matches (up to 5 per frame)
+        const batchSize = 5;
+        const endMatchIndex = Math.min(matchIndex + batchSize, matches.length);
+        
+        for (let i = matchIndex; i < endMatchIndex; i++) {
+            const match = matches[i];
+            processMatch(match);
+            processedMatchCount++;
+        }
+        
+        // Update banner with progress
+        if (processedMatchCount % 20 === 0 || processedMatchCount === totalMatchesToProcess) {
+            updateBanner(`Processing matches: ${processedMatchCount}/${totalMatchesToProcess}`);
+        }
+        
+        // Schedule next batch
+        requestAnimationFrame(() => processMatchBatch(endMatchIndex, 0));
+    }
+    
+    // Process a single match
+    function processMatch(match) {
         // Skip invalid matches
         if (!match.text || !match.word1) {
-            continue;
+            return;
         }
         
         // Create a unique ID for this match
@@ -627,10 +694,89 @@ function highlightMatches(matches) {
         
         // Skip if we've already highlighted this text
         if (highlightedTexts.has(matchId)) {
-            continue;
+            return;
         }
         
-        // Get all text nodes in a single pass
+        // Find text in DOM
+        findAndHighlightText(match);
+        
+        // Mark this match as processed
+        highlightedTexts.add(matchId);
+    }
+    
+    // Function to find and highlight specific text
+    function findAndHighlightText(match) {
+        // Text to search for - use the original match text to ensure we find exact matches
+        const searchText = match.text;
+        
+        // Function to find the index of search text in a string
+        const findIndex = (text, search, startPos = 0) => {
+            if (!text || !search) return -1;
+            
+            // For case insensitive search, convert both to lowercase
+            if (match.caseInsensitive) {
+                const lowerText = text.toLowerCase();
+                const lowerSearch = search.toLowerCase();
+                return lowerText.indexOf(lowerSearch, startPos);
+            }
+            
+            return text.indexOf(search, startPos);
+        };
+        
+        // Get all text nodes in a single pass (using cached nodes if available)
+        const nodesToProcess = textCache.nodes.length > 0 ? 
+            textCache.nodes : 
+            collectTextNodes();
+        
+        // Use efficient node processing with DocumentFragment
+        for (const node of nodesToProcess) {
+            if (!node.parentNode) continue;
+            
+            const nodeText = node.textContent;
+            if (!nodeText) continue;
+            
+            // Find text in this node
+            const foundPos = findIndex(nodeText, searchText, 0);
+            if (foundPos === -1) continue;
+            
+            // Create DocumentFragment for efficient DOM operations
+            const fragment = document.createDocumentFragment();
+            
+            // Create before text node
+            if (foundPos > 0) {
+                fragment.appendChild(document.createTextNode(
+                    nodeText.substring(0, foundPos)
+                ));
+            }
+            
+            // Create highlight span
+            const span = document.createElement('span');
+            span.className = 'wasm-search-highlight';
+            span.textContent = nodeText.substring(foundPos, foundPos + searchText.length);
+            fragment.appendChild(span);
+            
+            // Create after text node
+            if (foundPos + searchText.length < nodeText.length) {
+                fragment.appendChild(document.createTextNode(
+                    nodeText.substring(foundPos + searchText.length)
+                ));
+            }
+            
+            // Replace node with fragment (single DOM operation)
+            const parent = node.parentNode;
+            parent.replaceChild(fragment, node);
+            
+            // Add to highlighted elements
+            highlightedElements.push(span);
+            
+            // Found a match, no need to check further
+            break;
+        }
+    }
+    
+    // Function to collect all text nodes
+    function collectTextNodes() {
+        const nodes = [];
         const walker = document.createTreeWalker(
             document.body,
             NodeFilter.SHOW_TEXT,
@@ -657,98 +803,45 @@ function highlightMatches(matches) {
             }
         );
         
-        // Text to search for - use the original match text to ensure we find exact matches
-        const searchText = match.text;
-        
-        // Function to find the index of search text in a string
-        const findIndex = (text, search, startPos = 0) => {
-            if (!text || !search) return -1;
-            
-            // For case insensitive search, convert both to lowercase
-            if (match.caseInsensitive) {
-                const lowerText = text.toLowerCase();
-                const lowerSearch = search.toLowerCase();
-                return lowerText.indexOf(lowerSearch, startPos);
-            }
-            
-            return text.indexOf(search, startPos);
-        };
-        
-        // Process and update text nodes
-        const nodesToProcess = [];
-        let currentNode;
-        
-        // Collect all text nodes first
-        while (currentNode = walker.nextNode()) {
-            nodesToProcess.push(currentNode);
+        let node;
+        while (node = walker.nextNode()) {
+            nodes.push(node);
         }
         
-        // Process nodes and highlight matches
-        for (const node of nodesToProcess) {
-            const nodeText = node.textContent;
-            if (!nodeText) continue;
-            
-            // Find all occurrences of search text in this node
-            let startPos = 0;
-            let foundPos;
-            
-            while ((foundPos = findIndex(nodeText, searchText, startPos)) !== -1) {
-                // Create a highlight span
-                const span = document.createElement('span');
-                span.className = 'wasm-search-highlight';
-                span.textContent = nodeText.substring(foundPos, foundPos + searchText.length);
-                
-                // Split the node text
-                const beforeText = nodeText.substring(0, foundPos);
-                const afterText = nodeText.substring(foundPos + searchText.length);
-                
-                // Create text nodes for before and after
-                const beforeNode = document.createTextNode(beforeText);
-                const afterNode = document.createTextNode(afterText);
-                
-                // Replace the node with before + span + after
-                const parent = node.parentNode;
-                if (!parent) break; // Safety check
-                
-                parent.insertBefore(beforeNode, node);
-                parent.insertBefore(span, node);
-                parent.insertBefore(afterNode, node);
-                parent.removeChild(node);
-                
-                // Add highlight to our list
-                highlightedElements.push(span);
-                
-                // Update for next iteration - afterNode is now our node to process
-                startPos = 0;
-                
-                break; // We've modified the DOM, so break and let TreeWalker get fresh nodes
-            }
+        return nodes;
+    }
+    
+    // Function to finalize the highlighting process
+    function finishHighlighting() {
+        // Update total matches
+        totalMatches = highlightedElements.length;
+        
+        // Send match count to background/popup script
+        try {
+            chrome.runtime.sendMessage({
+                type: 'MATCH_COUNT',
+                count: totalMatches
+            });
+        } catch (error) {
+            // Silently fail
         }
         
-        // Mark this match as processed
-        highlightedTexts.add(matchId);
+        // Update status in banner
+        updateBanner(`Found ${totalMatches} matches`);
+        
+        // If we found matches, navigate to the first one
+        if (totalMatches > 0) {
+            scrollToMatch(0);
+        }
+        
+        // Clear text cache if it's getting too large (memory optimization)
+        if (textCache.nodes.length > 10000) {
+            clearTextCache();
+        }
     }
     
-    // Update total matches
-    totalMatches = highlightedElements.length;
-    
-    // Send match count to background/popup script
-    try {
-        chrome.runtime.sendMessage({
-            type: 'MATCH_COUNT',
-            count: totalMatches
-        });
-    } catch (error) {
-        // Silently fail
-    }
-    
-    // Update status in banner
-    updateBanner(`Found ${totalMatches} matches`);
-    
-    // If we found matches, navigate to the first one
-    if (totalMatches > 0) {
-        scrollToMatch(0);
-    }
+    // Start processing the first batch of matches
+    processMatchBatch(0, 0);
 }
 
 // Handle messages from the popup
