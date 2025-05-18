@@ -162,7 +162,7 @@ function updateNavigation() {
         nav.querySelector('.next').disabled = currentMatchIndex >= highlights.length - 1;
         
         // Update banner to also show match position
-        updateBanner(`Found ${fixedTotal} matches - Currently on match ${currentMatchIndex + 1}`);
+        // updateBanner(`Found ${fixedTotal} matches - Currently on match ${currentMatchIndex + 1}`);
     } else {
         nav.style.display = 'none';
     }
@@ -200,7 +200,7 @@ function scrollToMatch(index) {
         nav.querySelector('.next').disabled = currentMatchIndex >= highlights.length - 1;
         
         // Update banner to also show match position with FIXED total
-        updateBanner(`Found ${fixedTotal} matches - Currently on match ${currentMatchIndex + 1}`);
+        // updateBanner(`Found ${fixedTotal} matches - Currently on match ${currentMatchIndex + 1}`);
         
         // Send navigation update to the popup with FIXED total count
         try {
@@ -495,7 +495,7 @@ function initiateSearch(word1, word2, gap, caseInsensitive = false) {
             }
         }
         
-        updateBanner('Searching...');
+      //  updateBanner('Searching...');
         sendToPage(MessageTypes.RUN_SEARCH, { 
             word1: word1.trim(), 
             word2: word2.trim(), 
@@ -708,9 +708,9 @@ function highlightMatches(matches) {
         }
         
         // Update banner with progress
-        if (processedMatchCount % 20 === 0 || processedMatchCount === totalMatchesToProcess) {
-            updateBanner(`Processing matches: ${processedMatchCount}/${totalMatchesToProcess}`);
-        }
+        // if (processedMatchCount % 20 === 0 || processedMatchCount === totalMatchesToProcess) {
+        //     updateBanner(`Processing matches: ${processedMatchCount}/${totalMatchesToProcess}`);
+        // }
         
         // Schedule next batch
         requestAnimationFrame(() => processMatchBatch(endMatchIndex, 0));
@@ -854,7 +854,7 @@ function highlightMatches(matches) {
         const fixedTotal = window.fixedTotalMatches || totalMatches;
         
         // Update banner to ensure UI is responsive - use the FIXED total
-        updateBanner(`Found ${fixedTotal} matches`);
+       // updateBanner(`Found ${fixedTotal} matches`);
         
         // Update navigation display with the FIXED total
         nav.style.display = 'flex';
