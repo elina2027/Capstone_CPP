@@ -27,12 +27,6 @@ const sentMessages = new Set();
 // Function to send message to content script
 function sendToContent(type, detail) {
     const messageId = Date.now() + Math.random();
-    console.log('[PAGE] Sending message to content:', { 
-        type, 
-        detail,
-        messageId: messageId.toString().slice(-6)
-    });
-    
     sentMessages.add(messageId);
     window.postMessage({ type, detail, messageId }, '*');
     
@@ -44,26 +38,14 @@ function sendToContent(type, detail) {
 
 // Function to update state and log changes
 function updateState(updates) {
-    const oldState = { ...state };
     Object.assign(state, updates);
-    
-    console.log('[PAGE] State updated:', {
-        changes: Object.entries(updates).map(([key, value]) => ({
-            key,
-            old: oldState[key],
-            new: value
-        })),
-        currentState: { ...state }
-    });
 }
 
 // Listen for configuration events
 document.addEventListener('wasmConfigReady', function(event) {
     const config = event.detail;
-    console.log('[PAGE] Received WebAssembly configuration:', config);
     
     if (state.initialized) {
-        console.log('[PAGE] WebAssembly already initialized, ignoring configuration');
         return;
     }
     
@@ -77,13 +59,9 @@ state.memory = new WebAssembly.Memory({
     shared: false
 });
 
-console.log('[PAGE] Created WebAssembly memory:', state.memory);
-
 // Initialize memory views
 function initMemoryViews() {
-    console.log('[PAGE] Initializing memory views...');
     if (!window.Module) {
-        console.error('[PAGE] Module not available for memory view initialization');
         return false;
     }
     
@@ -96,10 +74,8 @@ function initMemoryViews() {
         window.Module.HEAPU32 = new Uint32Array(state.memory.buffer);
         
         updateState({ exports: { ...state.exports, HEAP32: true } });
-        console.log('[PAGE] Memory views initialized successfully');
         return true;
     } catch (error) {
-        console.error('[PAGE] Failed to initialize memory views:', error);
         return false;
     }
 }
@@ -110,8 +86,6 @@ function verifyExports() {
     const missing = required.filter(name => !window.Module[name]);
     
     if (missing.length > 0) {
-        const error = `Missing required exports: ${missing.join(', ')}`;
-        console.error('[PAGE]', error);
         return false;
     }
     
@@ -124,29 +98,22 @@ function verifyExports() {
         }
     });
     
-    console.log('[PAGE] All required exports verified');
     return true;
 }
 
 // Initialize WebAssembly
 function initWasm(searchJsUrl, wasmUrl) {
-    console.log('[PAGE] Starting WebAssembly initialization with URLs:', {
-        searchJs: searchJsUrl,
-        wasm: wasmUrl
-    });
-
     window.Module = {
         wasmMemory: state.memory,
         INITIAL_MEMORY: 16777216,  // 16MB
         MAXIMUM_MEMORY: 16777216,  // 16MB
         ALLOW_MEMORY_GROWTH: 0,    // Disable memory growth
 
-        print: function(text) { console.log('[WASM]', text); },
-        printErr: function(text) { console.error('[WASM]', text); },
+        print: function(text) {},
+        printErr: function(text) {},
 
         locateFile: function(path) {
             if (path.endsWith('.wasm')) {
-                console.log('[PAGE] Returning WASM URL:', wasmUrl);
                 return wasmUrl;
             }
             return path;
@@ -154,14 +121,11 @@ function initWasm(searchJsUrl, wasmUrl) {
 
         onAbort: function(what) {
             const error = 'WebAssembly aborted: ' + what;
-            console.error('[PAGE]', error);
             updateState({ error, initialized: false });
             sendToContent(MessageTypes.ERROR, error);
         },
 
         onRuntimeInitialized: function() {
-            console.log('[PAGE] WebAssembly runtime initialized');
-            
             if (!initMemoryViews()) {
                 const error = 'Failed to initialize memory views';
                 updateState({ error, initialized: false });
@@ -180,7 +144,6 @@ function initWasm(searchJsUrl, wasmUrl) {
             sendToContent(MessageTypes.INITIALIZED);
             
             if (state.pendingSearches.length > 0) {
-                console.log('[PAGE] Processing pending searches:', state.pendingSearches.length);
                 while (state.pendingSearches.length > 0) {
                     const search = state.pendingSearches.shift();
                     executeSearch(search.word1, search.word2, search.gap, search.caseInsensitive);
@@ -191,15 +154,7 @@ function initWasm(searchJsUrl, wasmUrl) {
 
     const script = document.createElement('script');
     script.src = searchJsUrl;
-    script.onload = () => {
-        console.log('[PAGE] search.js loaded, Module status:', {
-            exists: !!window.Module,
-            initialized: state.initialized,
-            exports: state.exports
-        });
-    };
     script.onerror = (error) => {
-        console.error('[PAGE] Failed to load search.js:', error);
         const errorMsg = 'Failed to load WebAssembly module';
         updateState({ error: errorMsg, initialized: false });
         sendToContent(MessageTypes.ERROR, errorMsg);
@@ -225,22 +180,15 @@ function allocateString(str) {
 
 // Function to initiate a search
 function initiateSearch(word1, word2, gap, caseInsensitive) {
-    console.log('[PAGE] Initiating search:', { word1, word2, gap, caseInsensitive });
-    
     // Validate parameters before proceeding
     if (!word1 || !word2 || typeof gap !== 'number') {
         const error = 'Invalid search parameters';
-        console.error('[PAGE] Search error:', {
-            error,
-            params: { word1, word2, gap, caseInsensitive }
-        });
         sendToContent(MessageTypes.SEARCH_ERROR, error);
         return;
     }
 
     // Queue search if WebAssembly isn't ready
     if (!state.initialized) {
-        console.log('[PAGE] WebAssembly not ready, queueing search');
         state.pendingSearches.push({ word1, word2, gap, caseInsensitive });
         return;
     }
@@ -254,23 +202,11 @@ function executeSearch(word1, word2, gap, caseInsensitive) {
     // Validate search parameters
     if (!word1 || !word2 || typeof gap !== 'number') {
         const error = 'Invalid search parameters';
-        console.error('[PAGE] Search error:', {
-            error,
-            params: { word1, word2, gap, caseInsensitive },
-            valid: {
-                word1: !!word1,
-                word2: !!word2,
-                gap: typeof gap === 'number'
-            }
-        });
         sendToContent(MessageTypes.SEARCH_ERROR, error);
         return;
     }
-
-    console.log('[PAGE] Executing search:', { word1, word2, gap, caseInsensitive });
     
     if (!state.initialized || !window.Module || !window.Module._search || !window.Module.HEAP32) {
-        console.log('[PAGE] WebAssembly not ready, queueing search');
         state.pendingSearches.push({ word1, word2, gap, caseInsensitive });
         return;
     }
@@ -311,7 +247,7 @@ function executeSearch(word1, word2, gap, caseInsensitive) {
                 const wordCount = Module.HEAP32[(resultPtr >> 2) + i + 2];
                 
                 // WebAssembly module now directly returns character count
-                const charCount = wordCount; // The field is still named wordCount in the C++ output for compatibility
+                const charCount = wordCount;
                 
                 matches.push({
                     start,
@@ -327,14 +263,9 @@ function executeSearch(word1, word2, gap, caseInsensitive) {
             }
         }
         
-        console.log('[PAGE] Search results:', {
-            matchCount: matches.length,
-            params: { word1, word2, gap, caseInsensitive }
-        });
         sendToContent(MessageTypes.SEARCH_COMPLETE, { matches });
         
     } catch (error) {
-        console.error('[PAGE] Search error:', error);
         sendToContent(MessageTypes.SEARCH_ERROR, error.message);
     } finally {
         // Clean up allocated memory
@@ -356,20 +287,10 @@ window.addEventListener('message', event => {
         return;
     }
     
-    console.log('[PAGE] Received message from content:', { 
-        type, 
-        detail,
-        messageId: messageId ? messageId.toString().slice(-6) : undefined
-    });
-    
     switch (type) {
         case MessageTypes.RUN_SEARCH:
             if (!detail || !detail.word1 || !detail.word2 || typeof detail.gap !== 'number') {
                 const error = 'Invalid search parameters in message';
-                console.error('[PAGE] Search error:', {
-                    error,
-                    detail
-                });
                 sendToContent(MessageTypes.SEARCH_ERROR, error);
                 return;
             }
@@ -382,15 +303,8 @@ window.addEventListener('message', event => {
 
 // Make search function available globally for debugging
 window.runSearch = function(word1, word2, gap, caseInsensitive) {
-    console.log('[PAGE] Running search with parameters:', { word1, word2, gap, caseInsensitive });
-    
     // Validate parameters before sending
     if (!word1 || !word2 || typeof gap !== 'number') {
-        const error = 'Invalid search parameters';
-        console.error('[PAGE] Search error:', {
-            error,
-            params: { word1, word2, gap, caseInsensitive }
-        });
         return;
     }
     

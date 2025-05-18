@@ -1,5 +1,3 @@
-console.log('[POPUP] Script loaded');
-
 document.addEventListener('DOMContentLoaded', function() {
   // Get elements
   const word1Input = document.getElementById('word1');
@@ -108,34 +106,28 @@ document.addEventListener('DOMContentLoaded', function() {
   
   // Navigation buttons click handlers
   prevBtn.addEventListener('click', () => {
-    console.log('[POPUP] Previous match button clicked');
     navigateMatches('prev');
   });
   
   nextBtn.addEventListener('click', () => {
-    console.log('[POPUP] Next match button clicked');
     navigateMatches('next');
   });
   
   // Function to navigate between matches
   function navigateMatches(direction) {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-      console.log('[POPUP] Sending navigation command:', direction);
-      
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: navigateMatchesInPage,
         args: [direction],
       }).catch((error) => {
-        console.error('[POPUP] Error injecting navigation script:', error);
+        // Silently fail
       });
     });
   }
   
   // Search button click handler
   searchBtn.addEventListener('click', () => {
-    console.log('[POPUP] Search button clicked');
-    
     const word1 = word1Input.value.trim();
     const word2 = word2Input.value.trim();
     const gap = parseInt(gapInput.value, 10);
@@ -160,8 +152,6 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    console.log('[POPUP] Search parameters:', { word1, word2, gap, caseInsensitive });
-
     // Show loading state
     showLoadingState();
     
@@ -172,16 +162,13 @@ document.addEventListener('DOMContentLoaded', function() {
     updateNavigationButtons(0, -1);
 
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-      console.log('[POPUP] Found active tab:', tab);
-      
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: runSearch,
         args: [word1, word2, gap, caseInsensitive],
       }).then(() => {
-        console.log('[POPUP] Search script injected successfully');
+        // Script injected
       }).catch((error) => {
-        console.error('[POPUP] Error injecting search script:', error);
         showError('Could not execute search');
         hideLoadingState();
         stopSearchTimer();
@@ -191,8 +178,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Clean button click handler
   cleanBtn.addEventListener('click', () => {
-    console.log('[POPUP] Clean button clicked');
-    
     // Reset the form inputs to default state
     word1Input.value = '';
     word2Input.value = '';
@@ -214,15 +199,12 @@ document.addEventListener('DOMContentLoaded', function() {
     updateNavigationButtons(0, -1);
     
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-      console.log('[POPUP] Found active tab for cleaning:', tab);
-      
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: cleanHighlights,
       }).then(() => {
-        console.log('[POPUP] Clean script injected successfully');
+        // Script injected
       }).catch((error) => {
-        console.error('[POPUP] Error injecting clean script:', error);
         showError('Could not clean highlights');
       });
     });
@@ -267,19 +249,10 @@ document.addEventListener('DOMContentLoaded', function() {
       nextBtn.innerHTML = '&darr;';
       currentMatchDiv.textContent = '';
     }
-    
-    console.log('[POPUP] Updated navigation buttons:', {
-      total,
-      current,
-      prevEnabled: !prevBtn.disabled,
-      nextEnabled: !nextBtn.disabled
-    });
   }
 
   // Listen for match count messages
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('[POPUP] Received message:', message);
-    
     if (message.type === 'MATCH_COUNT') {
       // Stop the timer when results are received
       stopSearchTimer();
@@ -290,7 +263,6 @@ document.addEventListener('DOMContentLoaded', function() {
       const count = message.count;
       matchCountDiv.className = count > 0 ? 'results success' : 'results';
       resultsText.textContent = `Total matches: ${count}`;
-      console.log('[POPUP] Updated match count display to:', count);
       
       // Enable/disable navigation buttons based on match count
       updateNavigationButtons(count, count > 0 ? 0 : -1);
@@ -305,7 +277,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Function to run the search on the page
 function runSearch(word1, word2, gap, caseInsensitive) {
-  console.log('[PAGE] Running search with parameters:', { word1, word2, gap, caseInsensitive });
   window.postMessage({ 
     type: "RUN_SEARCH", 
     detail: { word1, word2, gap, caseInsensitive }
@@ -314,12 +285,9 @@ function runSearch(word1, word2, gap, caseInsensitive) {
 
 // Function to clean highlights and reset extension state
 function cleanHighlights() {
-  console.log('[PAGE] Cleaning highlights and resetting state');
-  
   try {
     // Remove all highlights with safer approach
     const highlights = document.querySelectorAll(".wasm-search-highlight");
-    console.log(`[PAGE] Found ${highlights.length} highlights to remove`);
     
     // Remove highlights in reverse order to maintain text node integrity
     Array.from(highlights).reverse().forEach(span => {
@@ -341,7 +309,7 @@ function cleanHighlights() {
           }
         }
       } catch (removeError) {
-        console.error('[PAGE] Error removing highlight:', removeError);
+        // Silently fail
       }
     });
     
@@ -371,23 +339,19 @@ function cleanHighlights() {
         type: 'MATCH_COUNT',
         count: 0
       });
-      console.log('[PAGE] Sent zero match count to background after cleaning');
     } catch (error) {
-      console.error('[PAGE] Failed to send match count to background:', error);
+      // Silently fail
     }
   } catch (error) {
-    console.error('[PAGE] Error during cleanup:', error);
+    // Silently fail
   }
 }
 
 // Function to navigate between matches in the page
 function navigateMatchesInPage(direction) {
-  console.log('[PAGE] Navigating matches:', direction);
-  
   // Find all highlight elements
   const highlights = document.querySelectorAll('.wasm-search-highlight');
   if (!highlights || highlights.length === 0) {
-    console.log('[PAGE] No highlights found for navigation');
     return;
   }
   
@@ -429,9 +393,8 @@ function navigateMatchesInPage(direction) {
         current: newIndex,
         total: highlights.length
       });
-      console.log('[PAGE] Sent navigation update:', { current: newIndex, total: highlights.length });
     } catch (error) {
-      console.error('[PAGE] Failed to send navigation update:', error);
+      // Silently fail
     }
   }
 }

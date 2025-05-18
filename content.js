@@ -49,8 +49,6 @@ function updateBanner(text, isError = false) {
             spinner.style.display = 'none';
         }
     }
-    
-    console.log('[CONTENT] Banner updated:', text, isError ? '(error)' : '');
 }
 
 // Inject highlight styles
@@ -197,9 +195,8 @@ function scrollToMatch(index) {
                 current: index,
                 total: highlights.length
             });
-            console.log('[CONTENT] Sent match navigation update to popup:', { current: index, total: highlights.length });
         } catch (error) {
-            console.error('[CONTENT] Failed to send navigation update to popup:', error);
+            // Silently fail
         }
     }
 }
@@ -223,8 +220,8 @@ let initializationInProgress = false;
 
 // Track processing state
 const sentMessages = new Set();
-const processedResults = new Set(); // Add tracking for processed search results
-let lastSearchTime = 0; // Track last search time
+const processedResults = new Set();
+let lastSearchTime = 0;
 
 // Message types
 const MessageTypes = {
@@ -238,7 +235,6 @@ const MessageTypes = {
 
 // Function to send messages to page script
 function sendToPage(type, detail) {
-    console.log('[CONTENT] Sending message to page:', { type, detail });
     const messageId = Date.now() + Math.random();
     sentMessages.add(messageId);
     window.postMessage({ type, detail, messageId }, '*');
@@ -251,18 +247,14 @@ function sendToPage(type, detail) {
 
 // Force quit any existing search operation and clear highlights
 function forceCleanState() {
-    console.log('[CONTENT] Forcing clean state');
     removeHighlights();
     window.inSearchProcess = false;
 }
 
 // Message handler for all incoming messages
 function handleMessage(type, detail, messageId) {
-    console.log('[CONTENT] Received message:', { type, detail, messageId });
-    
     // If we're already in a search process, skip new search requests
     if (window.inSearchProcess && type === MessageTypes.SEARCH_COMPLETE) {
-        console.log('[CONTENT] Skipping duplicate search - already processing');
         return;
     }
     
@@ -270,7 +262,6 @@ function handleMessage(type, detail, messageId) {
         case MessageTypes.INITIALIZED:
             isWasmInitialized = true;
             initializationInProgress = false;
-            console.log('[CONTENT] WebAssembly initialized successfully');
             updateBanner('Ready for search!');
             break;
             
@@ -278,7 +269,6 @@ function handleMessage(type, detail, messageId) {
             isWasmInitialized = false;
             initializationInProgress = false;
             const error = detail || 'Unknown error';
-            console.error('[CONTENT] WebAssembly initialization failed:', error);
             updateBanner('Error: ' + error, true);
             break;
             
@@ -292,7 +282,6 @@ function handleMessage(type, detail, messageId) {
                 }
 
                 const { matches } = detail;
-                console.log('[CONTENT] Search completed:', { matchCount: matches.length });
                 
                 // Remove existing highlights first
                 removeHighlights();
@@ -310,9 +299,8 @@ function handleMessage(type, detail, messageId) {
                             type: 'MATCH_COUNT',
                             count: 0
                         });
-                        console.log('[CONTENT] Sent zero match count to background');
                     } catch (error) {
-                        console.error('[CONTENT] Failed to send match count to background:', error);
+                        // Silently fail
                     }
                 }
             } catch (error) {
@@ -331,25 +319,19 @@ function handleMessage(type, detail, messageId) {
         case MessageTypes.RUN_SEARCH:
             // Ensure we have valid details
             if (!detail) {
-                console.error('[CONTENT] Invalid search details');
                 return;
             }
             
             const { word1, word2, gap, caseInsensitive } = detail;
-            console.log('[CONTENT] Starting search:', { word1, word2, gap, caseInsensitive });
             
             // Validate minimal parameters
             if (!word1 || !word2 || gap === undefined) {
-                console.error('[CONTENT] Missing required search parameters');
                 updateBanner('Error: Missing search parameters', true);
                 return;
             }
             
             initiateSearch(word1, word2, gap, caseInsensitive);
             break;
-            
-        default:
-            console.log('[CONTENT] Received unhandled message type:', type);
     }
 }
 
@@ -362,7 +344,6 @@ window.addEventListener('message', event => {
 
     // Ignore messages we sent
     if (messageId && sentMessages.has(messageId)) {
-        console.log('[CONTENT] Ignoring our own message:', { type, messageId });
         return;
     }
     
@@ -372,7 +353,6 @@ window.addEventListener('message', event => {
 // Function to initialize WebAssembly
 function initializeWebAssembly() {
     if (initializationInProgress) {
-        console.log('[CONTENT] WebAssembly initialization already in progress');
         return;
     }
     
@@ -387,22 +367,10 @@ function initializeWebAssembly() {
     // Verify URLs are valid
     if (!searchJsUrl || !wasmUrl || !pageJsUrl) {
         const error = 'Failed to get valid URLs';
-        console.error('[CONTENT] ' + error + ':', { searchJsUrl, wasmUrl, pageJsUrl });
         updateBanner('Error: ' + error, true);
         initializationInProgress = false;
         return;
     }
-
-    console.log('[CONTENT] Extension URLs generated:', { 
-        searchJs: searchJsUrl,
-        wasm: wasmUrl,
-        pageJs: pageJsUrl,
-        valid: {
-            searchJs: searchJsUrl.startsWith('chrome-extension://'),
-            wasm: wasmUrl.startsWith('chrome-extension://'),
-            pageJs: pageJsUrl.startsWith('chrome-extension://')
-        }
-    });
 
     // Create configuration element
     const configElement = document.createElement('div');
@@ -414,7 +382,6 @@ function initializeWebAssembly() {
     const pageScript = document.createElement('script');
     pageScript.src = pageJsUrl;
     pageScript.onload = () => {
-        console.log('[CONTENT] page.js loaded, setting configuration');
         // Set configuration after page.js is loaded
         configElement.setAttribute('data-config', JSON.stringify({
             searchJsUrl,
@@ -422,13 +389,10 @@ function initializeWebAssembly() {
         }));
     };
     pageScript.onerror = (error) => {
-        console.error('[CONTENT] Failed to load page.js:', error);
         updateBanner('Error: Failed to load page script!', true);
         initializationInProgress = false;
     };
     document.head.appendChild(pageScript);
-    
-    // No need for duplicate event listener - we're using the global one
 }
 
 // Initialize WebAssembly
@@ -436,8 +400,6 @@ initializeWebAssembly();
 
 // Make search function available globally for debugging
 window.runSearch = function(word1, word2, gap) {
-    console.log('[CONTENT] Running search:', { word1, word2, gap });
-    
     // Convert gap to number if it's a string
     if (typeof gap === 'string') {
         gap = parseInt(gap, 10);
@@ -445,17 +407,14 @@ window.runSearch = function(word1, word2, gap) {
     
     // Validate parameters
     if (!word1 || typeof word1 !== 'string') {
-        console.error('[CONTENT] Invalid first word:', word1);
         updateBanner('Error: Invalid first word', true);
         return;
     }
     if (!word2 || typeof word2 !== 'string') {
-        console.error('[CONTENT] Invalid second word:', word2);
         updateBanner('Error: Invalid second word', true);
         return;
     }
     if (isNaN(gap) || gap < 0) {
-        console.error('[CONTENT] Invalid gap value:', gap);
         updateBanner('Error: Invalid gap value', true);
         return;
     }
@@ -481,18 +440,6 @@ function initiateSearch(word1, word2, gap, caseInsensitive = false) {
         if (typeof gap !== 'number' || gap < 0) {
             throw new Error('Invalid gap value');
         }
-
-        console.log('[CONTENT] Search requested:', { 
-            word1, 
-            word2, 
-            gap,
-            caseInsensitive,
-            valid: {
-                word1: typeof word1 === 'string' && word1.trim().length > 0,
-                word2: typeof word2 === 'string' && word2.trim().length > 0,
-                gap: typeof gap === 'number' && gap >= 0
-            }
-        });
         
         if (!isWasmInitialized) {
             if (initializationInProgress) {
@@ -510,7 +457,6 @@ function initiateSearch(word1, word2, gap, caseInsensitive = false) {
             caseInsensitive
         });
     } catch (error) {
-        console.error('[CONTENT] Search error:', error);
         updateBanner('Error: ' + error.message, true);
     }
 }
@@ -521,13 +467,11 @@ function handleSearchError(error) {
                         typeof error === 'string' ? error : 
                         'Unknown search error';
     
-    console.error('[CONTENT] Search error:', errorMessage);
     updateBanner('Search error: ' + errorMessage, true);
 }
 
 // Function to remove existing highlights
 function removeHighlights() {
-    console.log('[CONTENT] Removing existing highlights');
     const highlights = document.querySelectorAll('.wasm-search-highlight');
     
     // Remove highlights in reverse order to maintain text node integrity
@@ -561,9 +505,8 @@ function removeHighlights() {
             type: 'MATCH_COUNT',
             count: 0
         });
-        console.log('[CONTENT] Sent zero match count to background after clearing highlights');
     } catch (error) {
-        console.error('[CONTENT] Failed to send match count to background:', error);
+        // Silently fail
     }
 }
 
@@ -611,7 +554,7 @@ function getDocumentText() {
     let normalizedPosition = 0;
     let originalPosition = 0;
     
-    // First pass: collect all text nodes and their positions
+    // First pass: collect all text nodes
     const nodes = [];
     let node;
     while (node = walker.nextNode()) {
@@ -627,10 +570,6 @@ function getDocumentText() {
         
         // Verify node still has a parent
         if (!node.parentNode) {
-            console.log('[CONTENT] Node lost parent:', {
-                nodeText,
-                normalizedText: normalizedNodeText
-            });
             continue;
         }
         
@@ -650,18 +589,6 @@ function getDocumentText() {
         normalizedPosition += normalizedNodeText.length;
     }
     
-    console.log('[CONTENT] Text mapping created:', {
-        positions: positions.map(p => ({
-            originalText: p.originalText,
-            normalizedText: p.normalizedText,
-            originalStart: p.originalStart,
-            normalizedStart: p.normalizedStart,
-            hasParent: !!p.node.parentNode,
-            parentTag: p.node.parentNode?.tagName,
-            parentClasses: p.node.parentNode?.className
-        }))
-    });
-    
     // Store the mapping between original and normalized positions
     window.textPositionMap = {
         original: originalText,
@@ -674,23 +601,10 @@ function getDocumentText() {
 
 // Update highlight matches function with a completely different approach
 function highlightMatches(matches) {
-    console.log('[CONTENT] Starting highlight process for matches:', 
-        matches.map(m => ({
-            text: m.text?.trim(),
-            start: m.start,
-            length: m.length,
-            wordCount: m.wordCount,
-            word1: m.word1,
-            word2: m.word2,
-            caseInsensitive: m.caseInsensitive
-        }))
-    );
-    
     // Reset navigation
     currentMatchIndex = -1;
     
     if (!matches || matches.length === 0) {
-        console.log('[CONTENT] No matches to highlight');
         totalMatches = 0;
         return;
     }
@@ -705,7 +619,6 @@ function highlightMatches(matches) {
     for (const match of matches) {
         // Skip invalid matches
         if (!match.text || !match.word1) {
-            console.log('[CONTENT] Skipping match with no text or word1:', match);
             continue;
         }
         
@@ -714,17 +627,8 @@ function highlightMatches(matches) {
         
         // Skip if we've already highlighted this text
         if (highlightedTexts.has(matchId)) {
-            console.log('[CONTENT] Skipping duplicate match:', matchId);
             continue;
         }
-        
-        console.log('[CONTENT] Processing match:', {
-            text: match.text,
-            word1: match.word1,
-            word2: match.word2,
-            wordCount: match.wordCount,
-            caseInsensitive: match.caseInsensitive
-        });
         
         // Get all text nodes in a single pass
         const walker = document.createTreeWalker(
@@ -753,117 +657,111 @@ function highlightMatches(matches) {
             }
         );
         
-        // Find the text in any node
-        const matchText = match.text;
-        const word1 = match.word1;
-        let found = false;
+        // Text to search for - use the original match text to ensure we find exact matches
+        const searchText = match.text;
         
-        // Helper function for case-insensitive indexOf
+        // Function to find the index of search text in a string
         const findIndex = (text, search, startPos = 0) => {
+            if (!text || !search) return -1;
+            
+            // For case insensitive search, convert both to lowercase
             if (match.caseInsensitive) {
                 const lowerText = text.toLowerCase();
                 const lowerSearch = search.toLowerCase();
-                const pos = lowerText.indexOf(lowerSearch, startPos);
-                return pos;
+                return lowerText.indexOf(lowerSearch, startPos);
             }
+            
             return text.indexOf(search, startPos);
         };
         
-        // Collect all text nodes and search them
-        const textNodes = [];
-        let node;
-        while (node = walker.nextNode()) {
+        // Process and update text nodes
+        const nodesToProcess = [];
+        let currentNode;
+        
+        // Collect all text nodes first
+        while (currentNode = walker.nextNode()) {
+            nodesToProcess.push(currentNode);
+        }
+        
+        // Process nodes and highlight matches
+        for (const node of nodesToProcess) {
             const nodeText = node.textContent;
-            // First find word1's position
-            const word1Pos = findIndex(nodeText, word1);
-            if (word1Pos !== -1) {
-                // Then verify if this position contains our full match
-                const expectedText = nodeText.substr(word1Pos, matchText.length);
-                if (match.caseInsensitive ? 
-                    expectedText.toLowerCase() === matchText.toLowerCase() :
-                    expectedText === matchText) {
-                    textNodes.push({
-                        node,
-                        position: word1Pos,
-                        text: expectedText
-                    });
-                }
+            if (!nodeText) continue;
+            
+            // Find all occurrences of search text in this node
+            let startPos = 0;
+            let foundPos;
+            
+            while ((foundPos = findIndex(nodeText, searchText, startPos)) !== -1) {
+                // Create a highlight span
+                const span = document.createElement('span');
+                span.className = 'wasm-search-highlight';
+                span.textContent = nodeText.substring(foundPos, foundPos + searchText.length);
+                
+                // Split the node text
+                const beforeText = nodeText.substring(0, foundPos);
+                const afterText = nodeText.substring(foundPos + searchText.length);
+                
+                // Create text nodes for before and after
+                const beforeNode = document.createTextNode(beforeText);
+                const afterNode = document.createTextNode(afterText);
+                
+                // Replace the node with before + span + after
+                const parent = node.parentNode;
+                if (!parent) break; // Safety check
+                
+                parent.insertBefore(beforeNode, node);
+                parent.insertBefore(span, node);
+                parent.insertBefore(afterNode, node);
+                parent.removeChild(node);
+                
+                // Add highlight to our list
+                highlightedElements.push(span);
+                
+                // Update for next iteration - afterNode is now our node to process
+                startPos = 0;
+                
+                break; // We've modified the DOM, so break and let TreeWalker get fresh nodes
             }
         }
         
-        // Try to highlight all matches in the nodes
-        for (const nodeInfo of textNodes) {
-            try {
-                // Create the highlight element
-                const highlight = document.createElement('span');
-                highlight.className = 'wasm-search-highlight new';
-                
-                // Add data attributes
-                if (match.word1) highlight.setAttribute('data-word1', match.word1);
-                if (match.word2) highlight.setAttribute('data-word2', match.word2);
-                if (match.charCount !== undefined) highlight.setAttribute('data-char-count', match.charCount);
-                if (match.caseInsensitive) highlight.setAttribute('data-case-insensitive', 'true');
-                
-                // Create a range for the match
-                const range = document.createRange();
-                range.setStart(nodeInfo.node, nodeInfo.position);
-                range.setEnd(nodeInfo.node, nodeInfo.position + matchText.length);
-                
-                // Extract the matched text and create a highlight
-                const fragment = range.extractContents();
-                highlight.appendChild(fragment);
-                range.insertNode(highlight);
-                
-                // Add click handler
-                highlight.addEventListener('click', () => {
-                    const highlights = document.querySelectorAll('.wasm-search-highlight');
-                    const index = Array.from(highlights).indexOf(highlight);
-                    scrollToMatch(index);
-                });
-                
-                // Mark this match as highlighted
-                highlightedTexts.add(matchId);
-                highlightedElements.push(highlight);
-                found = true;
-                
-                console.log('[CONTENT] Successfully highlighted match:', matchId);
-            } catch (error) {
-                console.error('[CONTENT] Error creating highlight:', error);
-            }
-        }
-        
-        if (!found) {
-            console.log('[CONTENT] Could not find node for match text:', matchText);
-        }
+        // Mark this match as processed
+        highlightedTexts.add(matchId);
     }
     
-    // Get the ACTUAL count of highlighted elements
-    const actualHighlightedElements = document.querySelectorAll('.wasm-search-highlight');
-    totalMatches = actualHighlightedElements.length;
+    // Update total matches
+    totalMatches = highlightedElements.length;
     
-    // Update match count and navigation
-    console.log('[CONTENT] Highlight process complete:', {
-        expectedMatches: matches.length,
-        actualHighlights: totalMatches
-    });
-    
-    // Send accurate match count to background script
+    // Send match count to background/popup script
     try {
         chrome.runtime.sendMessage({
             type: 'MATCH_COUNT',
             count: totalMatches
         });
-        console.log('[CONTENT] Sent accurate match count to background:', totalMatches);
     } catch (error) {
-        console.error('[CONTENT] Failed to send match count to background:', error);
+        // Silently fail
     }
     
-    // Scroll to first match if any found
-    if (totalMatches > 0 && highlightedElements.length > 0) {
-        setTimeout(() => {
-            scrollToMatch(0);
-        }, 100);
+    // Update status in banner
+    updateBanner(`Found ${totalMatches} matches`);
+    
+    // If we found matches, navigate to the first one
+    if (totalMatches > 0) {
+        scrollToMatch(0);
+    }
+}
+
+// Handle messages from the popup
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'GET_MATCH_COUNT') {
+        sendResponse({ count: totalMatches });
     }
     
-    updateNavigation();
-} 
+    if (message.type === 'NAVIGATE_MATCH' && message.direction) {
+        if (message.direction === 'next' && currentMatchIndex < totalMatches - 1) {
+            scrollToMatch(currentMatchIndex + 1);
+        } else if (message.direction === 'prev' && currentMatchIndex > 0) {
+            scrollToMatch(currentMatchIndex - 1);
+        }
+    }
+}); 
