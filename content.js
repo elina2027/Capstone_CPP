@@ -658,8 +658,8 @@ function highlightMatches(matches) {
     // Process each match
     for (const match of matches) {
         // Skip invalid matches
-        if (!match.text) {
-            console.log('[CONTENT] Skipping match with no text:', match);
+        if (!match.text || !match.word1) {
+            console.log('[CONTENT] Skipping match with no text or word1:', match);
             continue;
         }
         
@@ -708,61 +708,67 @@ function highlightMatches(matches) {
         
         // Find the text in any node
         const matchText = match.text;
+        const word1 = match.word1;
         let found = false;
         
         // Collect all text nodes and search them
         const textNodes = [];
         let node;
         while (node = walker.nextNode()) {
-            if (node.textContent.includes(matchText)) {
-                textNodes.push(node);
+            const nodeText = node.textContent;
+            // First find word1's position
+            const word1Pos = nodeText.indexOf(word1);
+            if (word1Pos !== -1) {
+                // Then verify if this position contains our full match
+                const expectedText = nodeText.substr(word1Pos, matchText.length);
+                if (expectedText === matchText) {
+                    textNodes.push({
+                        node,
+                        position: word1Pos,
+                        text: expectedText
+                    });
+                }
             }
         }
         
-        // Try to highlight the match in the first matching node
-        if (textNodes.length > 0) {
-            const node = textNodes[0];
-            const nodeText = node.textContent;
-            const pos = nodeText.indexOf(matchText);
-            
-            if (pos >= 0) {
-                try {
-                    // Create the highlight element
-                    const highlight = document.createElement('span');
-                    highlight.className = 'wasm-search-highlight new';
-                    
-                    // Add data attributes
-                    if (match.word1) highlight.setAttribute('data-word1', match.word1);
-                    if (match.word2) highlight.setAttribute('data-word2', match.word2);
-                    if (match.charCount !== undefined) highlight.setAttribute('data-char-count', match.charCount);
-                    
-                    // Create a range for the match
-                    const range = document.createRange();
-                    range.setStart(node, pos);
-                    range.setEnd(node, pos + matchText.length);
-                    
-                    // Extract the matched text and create a highlight
-                    const fragment = range.extractContents();
-                    highlight.appendChild(fragment);
-                    range.insertNode(highlight);
-                    
-                    // Add click handler
-                    highlight.addEventListener('click', () => {
-                        const highlights = document.querySelectorAll('.wasm-search-highlight');
-                        const index = Array.from(highlights).indexOf(highlight);
-                        scrollToMatch(index);
-                    });
-                    
-                    // Mark this match as highlighted
-                    highlightedTexts.add(matchId);
-                    highlightedElements.push(highlight);
-                    totalMatches++;
-                    found = true;
-                    
-                    console.log('[CONTENT] Successfully highlighted match:', matchId);
-                } catch (error) {
-                    console.error('[CONTENT] Error creating highlight:', error);
-                }
+        // Try to highlight all matches in the nodes
+        for (const nodeInfo of textNodes) {
+            try {
+                // Create the highlight element
+                const highlight = document.createElement('span');
+                highlight.className = 'wasm-search-highlight new';
+                
+                // Add data attributes
+                if (match.word1) highlight.setAttribute('data-word1', match.word1);
+                if (match.word2) highlight.setAttribute('data-word2', match.word2);
+                if (match.charCount !== undefined) highlight.setAttribute('data-char-count', match.charCount);
+                
+                // Create a range for the match
+                const range = document.createRange();
+                range.setStart(nodeInfo.node, nodeInfo.position);
+                range.setEnd(nodeInfo.node, nodeInfo.position + matchText.length);
+                
+                // Extract the matched text and create a highlight
+                const fragment = range.extractContents();
+                highlight.appendChild(fragment);
+                range.insertNode(highlight);
+                
+                // Add click handler
+                highlight.addEventListener('click', () => {
+                    const highlights = document.querySelectorAll('.wasm-search-highlight');
+                    const index = Array.from(highlights).indexOf(highlight);
+                    scrollToMatch(index);
+                });
+                
+                // Mark this match as highlighted
+                highlightedTexts.add(matchId);
+                highlightedElements.push(highlight);
+                totalMatches++;
+                found = true;
+                
+                console.log('[CONTENT] Successfully highlighted match:', matchId);
+            } catch (error) {
+                console.error('[CONTENT] Error creating highlight:', error);
             }
         }
         
