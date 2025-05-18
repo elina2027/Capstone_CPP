@@ -116,6 +116,15 @@ document.addEventListener('DOMContentLoaded', function() {
   cleanBtn.addEventListener('click', () => {
     console.log('[POPUP] Clean button clicked');
     
+    // Reset the form inputs to default state
+    word1Input.value = '';
+    word2Input.value = '';
+    gapInput.value = '20';
+    
+    // Focus first input field
+    word1Input.focus();
+    
+    // Reset results display
     matchCountDiv.className = 'results';
     matchCountDiv.textContent = 'Total matches: 0';
     
@@ -208,25 +217,71 @@ function runSearch(word1, word2, gap) {
   }, "*");
 }
 
-// Function to clean highlights
+// Function to clean highlights and reset extension state
 function cleanHighlights() {
-  console.log('[PAGE] Cleaning highlights');
+  console.log('[PAGE] Cleaning highlights and resetting state');
   
-  // Remove all highlights
-  document.querySelectorAll(".wasm-search-highlight").forEach(span => {
-    const text = document.createTextNode(span.textContent);
-    span.replaceWith(text);
-  });
-  
-  // Send match count update
   try {
-    chrome.runtime.sendMessage({
-      type: 'MATCH_COUNT',
-      count: 0
+    // Remove all highlights with safer approach
+    const highlights = document.querySelectorAll(".wasm-search-highlight");
+    console.log(`[PAGE] Found ${highlights.length} highlights to remove`);
+    
+    // Remove highlights in reverse order to maintain text node integrity
+    Array.from(highlights).reverse().forEach(span => {
+      try {
+        const parent = span.parentNode;
+        if (parent) {
+          // Create a new text node with the highlight's content
+          const text = document.createTextNode(span.textContent);
+          parent.replaceChild(text, span);
+          
+          // Merge with adjacent text nodes if they exist
+          if (text.previousSibling && text.previousSibling.nodeType === Node.TEXT_NODE) {
+            text.textContent = text.previousSibling.textContent + text.textContent;
+            parent.removeChild(text.previousSibling);
+          }
+          if (text.nextSibling && text.nextSibling.nodeType === Node.TEXT_NODE) {
+            text.textContent = text.textContent + text.nextSibling.textContent;
+            parent.removeChild(text.nextSibling);
+          }
+        }
+      } catch (removeError) {
+        console.error('[PAGE] Error removing highlight:', removeError);
+      }
     });
-    console.log('[PAGE] Sent zero match count to background after cleaning');
+    
+    // Hide navigation controls if they exist
+    const navControls = document.querySelector('.wasm-search-nav');
+    if (navControls) {
+      navControls.style.display = 'none';
+    }
+    
+    // Reset navigation state
+    window.currentMatchIndex = -1;
+    window.totalMatches = 0;
+    
+    // Reset search process flag
+    window.inSearchProcess = false;
+    
+    // Update banner text to default state
+    const banner = document.querySelector('div[style*="position: fixed"][style*="top: 0"]');
+    if (banner) {
+      banner.style.backgroundColor = '#4CAF50';
+      banner.textContent = 'Ready for search!';
+    }
+    
+    // Send match count update
+    try {
+      chrome.runtime.sendMessage({
+        type: 'MATCH_COUNT',
+        count: 0
+      });
+      console.log('[PAGE] Sent zero match count to background after cleaning');
+    } catch (error) {
+      console.error('[PAGE] Failed to send match count to background:', error);
+    }
   } catch (error) {
-    console.error('[PAGE] Failed to send match count to background:', error);
+    console.error('[PAGE] Error during cleanup:', error);
   }
 }
 
