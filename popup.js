@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const gapBtns = document.querySelectorAll('.gap-btn');
   const prevBtn = document.getElementById('prevBtn');
   const nextBtn = document.getElementById('nextBtn');
+  const caseInsensitiveCheckbox = document.getElementById('caseInsensitive');
   
   // Focus first input on popup open
   word1Input.focus();
@@ -66,6 +67,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const word1 = word1Input.value.trim();
     const word2 = word2Input.value.trim();
     const gap = parseInt(gapInput.value, 10);
+    const caseInsensitive = caseInsensitiveCheckbox.checked;
 
     // Validate inputs
     if (!word1) {
@@ -86,7 +88,7 @@ document.addEventListener('DOMContentLoaded', function() {
       return;
     }
 
-    console.log('[POPUP] Search parameters:', { word1, word2, gap });
+    console.log('[POPUP] Search parameters:', { word1, word2, gap, caseInsensitive });
 
     // Update status to show searching state while maintaining total matches format
     matchCountDiv.className = 'results searching';
@@ -102,7 +104,7 @@ document.addEventListener('DOMContentLoaded', function() {
       chrome.scripting.executeScript({
         target: { tabId: tab.id },
         function: runSearch,
-        args: [word1, word2, gap],
+        args: [word1, word2, gap, caseInsensitive],
       }).then(() => {
         console.log('[POPUP] Search script injected successfully');
       }).catch((error) => {
@@ -209,11 +211,11 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Function to run the search on the page
-function runSearch(word1, word2, gap) {
-  console.log('[PAGE] Running search with parameters:', { word1, word2, gap });
+function runSearch(word1, word2, gap, caseInsensitive) {
+  console.log('[PAGE] Running search with parameters:', { word1, word2, gap, caseInsensitive });
   window.postMessage({ 
     type: "RUN_SEARCH", 
-    detail: { word1, word2, gap }
+    detail: { word1, word2, gap, caseInsensitive }
   }, "*");
 }
 

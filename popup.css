@@ -223,3 +223,23 @@ button.secondary:hover {
   background-color: #fce8e6;
   color: var(--error-color);
 }
+
+.checkbox-group {
+  margin-top: -8px;
+  margin-bottom: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}

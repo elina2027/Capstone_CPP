@@ -183,7 +183,7 @@ function initWasm(searchJsUrl, wasmUrl) {
                 console.log('[PAGE] Processing pending searches:', state.pendingSearches.length);
                 while (state.pendingSearches.length > 0) {
                     const search = state.pendingSearches.shift();
-                    executeSearch(search.word1, search.word2, search.gap);
+                    executeSearch(search.word1, search.word2, search.gap, search.caseInsensitive);
                 }
             }
         }
@@ -224,15 +224,15 @@ function allocateString(str) {
 }
 
 // Function to initiate a search
-function initiateSearch(word1, word2, gap) {
-    console.log('[PAGE] Initiating search:', { word1, word2, gap });
+function initiateSearch(word1, word2, gap, caseInsensitive) {
+    console.log('[PAGE] Initiating search:', { word1, word2, gap, caseInsensitive });
     
     // Validate parameters before proceeding
     if (!word1 || !word2 || typeof gap !== 'number') {
         const error = 'Invalid search parameters';
         console.error('[PAGE] Search error:', {
             error,
-            params: { word1, word2, gap }
+            params: { word1, word2, gap, caseInsensitive }
         });
         sendToContent(MessageTypes.SEARCH_ERROR, error);
         return;
@@ -241,22 +241,22 @@ function initiateSearch(word1, word2, gap) {
     // Queue search if WebAssembly isn't ready
     if (!state.initialized) {
         console.log('[PAGE] WebAssembly not ready, queueing search');
-        state.pendingSearches.push({ word1, word2, gap });
+        state.pendingSearches.push({ word1, word2, gap, caseInsensitive });
         return;
     }
 
     // Execute search
-    executeSearch(word1, word2, gap);
+    executeSearch(word1, word2, gap, caseInsensitive);
 }
 
 // Handle search execution
-function executeSearch(word1, word2, gap) {
+function executeSearch(word1, word2, gap, caseInsensitive) {
     // Validate search parameters
     if (!word1 || !word2 || typeof gap !== 'number') {
         const error = 'Invalid search parameters';
         console.error('[PAGE] Search error:', {
             error,
-            params: { word1, word2, gap },
+            params: { word1, word2, gap, caseInsensitive },
             valid: {
                 word1: !!word1,
                 word2: !!word2,
@@ -267,11 +267,11 @@ function executeSearch(word1, word2, gap) {
         return;
     }
 
-    console.log('[PAGE] Executing search:', { word1, word2, gap });
+    console.log('[PAGE] Executing search:', { word1, word2, gap, caseInsensitive });
     
     if (!state.initialized || !window.Module || !window.Module._search || !window.Module.HEAP32) {
         console.log('[PAGE] WebAssembly not ready, queueing search');
-        state.pendingSearches.push({ word1, word2, gap });
+        state.pendingSearches.push({ word1, word2, gap, caseInsensitive });
         return;
     }
     
@@ -290,12 +290,13 @@ function executeSearch(word1, word2, gap) {
         word1Alloc = allocateString(word1);
         word2Alloc = allocateString(word2);
         
-        // Call the search function
+        // Call the search function with case-insensitive parameter
         const resultPtr = Module._search(
             textAlloc.ptr, textAlloc.length - 1,
             word1Alloc.ptr, word1Alloc.length - 1,
             word2Alloc.ptr, word2Alloc.length - 1,
-            gap
+            gap,
+            caseInsensitive ? 1 : 0
         );
         
         // Process results
@@ -318,7 +319,8 @@ function executeSearch(word1, word2, gap) {
                     charCount,
                     text: text.substr(start, length),
                     word1,
-                    word2
+                    word2,
+                    caseInsensitive
                 });
                 
                 i += 3;
@@ -327,7 +329,7 @@ function executeSearch(word1, word2, gap) {
         
         console.log('[PAGE] Search results:', {
             matchCount: matches.length,
-            params: { word1, word2, gap }
+            params: { word1, word2, gap, caseInsensitive }
         });
         sendToContent(MessageTypes.SEARCH_COMPLETE, { matches });
         
@@ -372,26 +374,26 @@ window.addEventListener('message', event => {
                 return;
             }
             
-            const { word1, word2, gap } = detail;
-            initiateSearch(word1, word2, gap);
+            const { word1, word2, gap, caseInsensitive } = detail;
+            initiateSearch(word1, word2, gap, caseInsensitive);
             break;
     }
 });
 
 // Make search function available globally for debugging
-window.runSearch = function(word1, word2, gap) {
-    console.log('[PAGE] Running search with parameters:', { word1, word2, gap });
+window.runSearch = function(word1, word2, gap, caseInsensitive) {
+    console.log('[PAGE] Running search with parameters:', { word1, word2, gap, caseInsensitive });
     
     // Validate parameters before sending
     if (!word1 || !word2 || typeof gap !== 'number') {
         const error = 'Invalid search parameters';
         console.error('[PAGE] Search error:', {
             error,
-            params: { word1, word2, gap }
+            params: { word1, word2, gap, caseInsensitive }
         });
         return;
     }
     
     // Directly initiate search instead of sending a message to self
-    initiateSearch(word1, word2, gap);
+    initiateSearch(word1, word2, gap, caseInsensitive);
 }; 

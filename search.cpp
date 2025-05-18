@@ -3,13 +3,22 @@
 #include <vector>
 #include <cctype>
 #include <cstdio>
-#include <algorithm> // for std::max
+#include <algorithm> // for std::max and std::transform
 
 // For IDE intellisense
 #ifndef __EMSCRIPTEN__
 #include <cstddef> // for size_t
 using std::size_t;
 #endif
+
+// Helper function to convert string to lowercase (moved outside extern "C")
+namespace {
+    std::string toLower(const std::string& str) {
+        std::string lower = str;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        return lower;
+    }
+}
 
 extern "C" {
 
@@ -74,9 +83,20 @@ int countCharsBetween(const std::string& text, size_t start, size_t end) {
     return chars;
 }
 
+// Helper function to find next occurrence of word with case sensitivity option
+size_t findWord(const std::string& text, const std::string& word, 
+                const std::string& textLower, const std::string& wordLower,
+                size_t pos, bool caseInsensitive) {
+    if (caseInsensitive) {
+        size_t found = textLower.find(wordLower, pos);
+        return found;
+    }
+    return text.find(word, pos);
+}
+
 EMSCRIPTEN_KEEPALIVE
 int* search(const char* text, int textLen, const char* word1, int word1Len, 
-           const char* word2, int word2Len, int gap) {
+           const char* word2, int word2Len, int gap, bool caseInsensitive) {
     // Input validation
     if (!text || textLen <= 0 || !word1 || word1Len <= 0 || !word2 || word2Len <= 0 || gap < 0) {
         printf("Invalid input parameters\n");
@@ -87,8 +107,13 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
     std::string w1(word1, word1Len);
     std::string w2(word2, word2Len);
     
-    printf("Search parameters: text_len=%d, word1='%s', word2='%s', gap=%d\n", 
-           textLen, w1.c_str(), w2.c_str(), gap);
+    // Create lowercase versions for case-insensitive search
+    std::string strLower = caseInsensitive ? toLower(str) : "";
+    std::string w1Lower = caseInsensitive ? toLower(w1) : "";
+    std::string w2Lower = caseInsensitive ? toLower(w2) : "";
+    
+    printf("Search parameters: text_len=%d, word1='%s', word2='%s', gap=%d, case_insensitive=%d\n", 
+           textLen, w1.c_str(), w2.c_str(), gap, caseInsensitive);
     
     // Use static vector to persist memory between calls
     static std::vector<int> results;
@@ -101,7 +126,10 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
     
     printf("Starting search loop with text: '%s'\n", str.substr(0, 50).c_str());
     
-    while (pos < str.length() && (pos = str.find(w1, pos)) != std::string::npos) {
+    while (pos < str.length()) {
+        pos = findWord(str, w1, strLower, w1Lower, pos, caseInsensitive);
+        if (pos == std::string::npos) break;
+        
         printf("Found word1 at position %zu\n", pos);
         
         if (matchCount >= MAX_MATCHES) {
@@ -115,7 +143,7 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
             printf("Looking for word2 starting at position %zu\n", start2);
             
             // Find the next occurrence of word2
-            size_t found = str.find(w2, start2);
+            size_t found = findWord(str, w2, strLower, w2Lower, start2, caseInsensitive);
             while (found != std::string::npos && found < str.length()) {
                 printf("Found word2 at position %zu\n", found);
                 
@@ -157,7 +185,7 @@ int* search(const char* text, int textLen, const char* word1, int word1Len,
                     }
                 }
                 // Look for next occurrence if this one wasn't valid or was too far
-                found = str.find(w2, found + 1);
+                found = findWord(str, w2, strLower, w2Lower, found + 1, caseInsensitive);
             }
         }
         pos++;

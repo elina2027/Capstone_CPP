@@ -297,8 +297,8 @@ function handleMessage(type, detail, messageId) {
                     throw new Error('Invalid search request: missing parameters');
                 }
 
-                const { word1, word2, gap } = detail;
-                initiateSearch(word1, word2, gap);
+                const { word1, word2, gap, caseInsensitive } = detail;
+                initiateSearch(word1, word2, gap, caseInsensitive);
             } catch (error) {
                 console.error('[CONTENT] Search error:', error);
                 updateBanner('Error: ' + error.message, true);
@@ -426,7 +426,7 @@ window.runSearch = function(word1, word2, gap) {
 };
 
 // Function to initiate a search
-function initiateSearch(word1, word2, gap) {
+function initiateSearch(word1, word2, gap, caseInsensitive = false) {
     try {
         // Validate parameters
         if (!word1 || typeof word1 !== 'string' || word1.trim().length === 0) {
@@ -443,6 +443,7 @@ function initiateSearch(word1, word2, gap) {
             word1, 
             word2, 
             gap,
+            caseInsensitive,
             valid: {
                 word1: typeof word1 === 'string' && word1.trim().length > 0,
                 word2: typeof word2 === 'string' && word2.trim().length > 0,
@@ -462,7 +463,8 @@ function initiateSearch(word1, word2, gap) {
         sendToPage(MessageTypes.RUN_SEARCH, { 
             word1: word1.trim(), 
             word2: word2.trim(), 
-            gap 
+            gap,
+            caseInsensitive
         });
     } catch (error) {
         console.error('[CONTENT] Search error:', error);
@@ -636,7 +638,8 @@ function highlightMatches(matches) {
             length: m.length,
             wordCount: m.wordCount,
             word1: m.word1,
-            word2: m.word2
+            word2: m.word2,
+            caseInsensitive: m.caseInsensitive
         }))
     );
     
@@ -676,7 +679,8 @@ function highlightMatches(matches) {
             text: match.text,
             word1: match.word1,
             word2: match.word2,
-            wordCount: match.wordCount
+            wordCount: match.wordCount,
+            caseInsensitive: match.caseInsensitive
         });
         
         // Get all text nodes in a single pass
@@ -711,17 +715,30 @@ function highlightMatches(matches) {
         const word1 = match.word1;
         let found = false;
         
+        // Helper function for case-insensitive indexOf
+        const findIndex = (text, search, startPos = 0) => {
+            if (match.caseInsensitive) {
+                const lowerText = text.toLowerCase();
+                const lowerSearch = search.toLowerCase();
+                const pos = lowerText.indexOf(lowerSearch, startPos);
+                return pos;
+            }
+            return text.indexOf(search, startPos);
+        };
+        
         // Collect all text nodes and search them
         const textNodes = [];
         let node;
         while (node = walker.nextNode()) {
             const nodeText = node.textContent;
             // First find word1's position
-            const word1Pos = nodeText.indexOf(word1);
+            const word1Pos = findIndex(nodeText, word1);
             if (word1Pos !== -1) {
                 // Then verify if this position contains our full match
                 const expectedText = nodeText.substr(word1Pos, matchText.length);
-                if (expectedText === matchText) {
+                if (match.caseInsensitive ? 
+                    expectedText.toLowerCase() === matchText.toLowerCase() :
+                    expectedText === matchText) {
                     textNodes.push({
                         node,
                         position: word1Pos,
@@ -742,6 +759,7 @@ function highlightMatches(matches) {
                 if (match.word1) highlight.setAttribute('data-word1', match.word1);
                 if (match.word2) highlight.setAttribute('data-word2', match.word2);
                 if (match.charCount !== undefined) highlight.setAttribute('data-char-count', match.charCount);
+                if (match.caseInsensitive) highlight.setAttribute('data-case-insensitive', 'true');
                 
                 // Create a range for the match
                 const range = document.createRange();
